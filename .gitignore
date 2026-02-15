@@ -28,3 +28,7 @@ data/
 
 # Slides / docs
 *.pdf
+
+# Streamlit
+.streamlit/
+secrets.toml
