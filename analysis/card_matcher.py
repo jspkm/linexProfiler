@@ -216,6 +216,46 @@ def match_cards_sync(
     catalog: CardCatalog | None = None,
     region_filter: str | None = None,
 ) -> CardRecommendation:
-    """Synchronous wrapper for match_cards."""
-    import asyncio
-    return asyncio.run(match_cards(profile, features, catalog, region_filter))
+    """Synchronous version of match_cards using the sync Anthropic client."""
+    if catalog is None:
+        catalog = CardCatalog(str(CARDS_PATH))
+
+    # Filter cards by region
+    region = region_filter or features.country
+    cards = catalog.get_cards_for_region(region)
+    if not cards:
+        cards = catalog.cards  # Fallback to all cards
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    profile_toon = profile.raw_toon
+    features_toon = format_features_for_llm(features)
+    cards_toon = format_cards_for_llm(cards)
+
+    user_prompt = build_user_prompt(profile_toon, features_toon, cards_toon)
+
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=2000,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    raw_text = response.content[0].text.strip()
+
+    # Strip markdown code fences if present
+    if raw_text.startswith("```"):
+        lines = raw_text.split("\n")
+        clean_lines = []
+        in_block = False
+        for line in lines:
+            if line.startswith("```") and not in_block:
+                in_block = True
+                continue
+            if line.startswith("```") and in_block:
+                break
+            if in_block:
+                clean_lines.append(line)
+        raw_text = "\n".join(clean_lines)
+
+    return _parse_toon_recommendations(raw_text, features.customer_id)

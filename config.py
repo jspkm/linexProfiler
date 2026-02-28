@@ -1,11 +1,21 @@
 import os
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+except ImportError:
+    pass
+
 PROJECT_ROOT = Path(__file__).parent
 
-# Anthropic API
+# Anthropic API (legacy)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-MODEL = os.environ.get("QU_MODEL", "claude-sonnet-4-20250514")
+ANTHROPIC_MODEL = os.environ.get("QU_MODEL", "claude-sonnet-4-20250514")
+
+# Gemini API
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+MODEL = os.environ.get("QU_MODEL", "gemini-2.0-flash")
 
 # Data paths (testing only)
 DATA_DIR = PROJECT_ROOT / "data"

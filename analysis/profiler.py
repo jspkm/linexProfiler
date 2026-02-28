@@ -87,6 +87,33 @@ async def profile_user(features: UserFeatures) -> UserProfile:
 
 
 def profile_user_sync(features: UserFeatures) -> UserProfile:
-    """Synchronous wrapper for profile_user."""
-    import asyncio
-    return asyncio.run(profile_user(features))
+    """Synchronous version of profile_user using the sync Anthropic client."""
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    features_toon = format_features_for_llm(features)
+    user_prompt = build_user_prompt(features_toon)
+
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=2000,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    raw_text = response.content[0].text.strip()
+
+    # Strip markdown code fences if present
+    if raw_text.startswith("```"):
+        lines = raw_text.split("\n")
+        clean_lines = []
+        in_block = False
+        for line in lines:
+            if line.startswith("```") and not in_block:
+                in_block = True
+                continue
+            if line.startswith("```") and in_block:
+                break
+            if in_block:
+                clean_lines.append(line)
+        raw_text = "\n".join(clean_lines)
+
+    return _parse_toon_profile(raw_text, features.customer_id)

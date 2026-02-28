@@ -1,0 +1,39 @@
+{
+    "functions": {
+        "source": ".",
+        "codebase": "default",
+        "ignore": [
+            ".git",
+            ".firebase",
+            ".firebase/**",
+            "node_modules",
+            "node_modules/**",
+            "venv",
+            "venv/**",
+            ".venv",
+            ".venv/**",
+            "web",
+            "web/**",
+            "data",
+            "data/**",
+            "ui",
+            "ui/**",
+            "*.log",
+            "*-debug.log",
+            "gunicorn.ctl",
+            "__pycache__",
+            "**/__pycache__/**",
+            ".gemini",
+            ".gemini/**",
+            "*.pyc"
+        ]
+    },
+    "hosting": {
+        "public": "web/out",
+        "ignore": [
+            "firebase.json",
+            "**/.*",
+            "**/node_modules/**"
+        ]
+    }
+}
