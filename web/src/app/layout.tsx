@@ -5,8 +5,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "qu — Linex Profiler Quant Agent",
-  description: "Profiler quant agent for the Linex loyalty platform",
+  title: "Linex Profiler",
+  description: "Linex Profiler agent for the Linex loyalty platform",
 };
 
 export default function RootLayout({

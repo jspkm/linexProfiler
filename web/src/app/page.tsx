@@ -138,8 +138,7 @@ export default function Home() {
       {/* Sidebar */}
       <aside className="w-64 border-r bg-white p-6 shadow-sm">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight text-blue-600">qu</h1>
-          <p className="text-sm font-medium text-slate-500">Linex Profiler Quant Agent</p>
+          <h1 className="text-3xl font-bold tracking-tight text-black">linex qu</h1>
         </div>
 
         <nav className="space-y-1">
@@ -186,10 +185,10 @@ export default function Home() {
                 <button
                   onClick={() => setProfilerTab("test")}
                   className={cn(
-                    "px-6 py-3 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2",
+                    "px-6 py-3 text-sm border-b-2 -mb-px transition-colors flex items-center gap-2",
                     profilerTab === "test"
-                      ? "border-blue-600 text-blue-600"
-                      : "border-transparent text-slate-500 hover:text-slate-700"
+                      ? "border-black text-black font-bold"
+                      : "font-medium border-transparent text-slate-500 hover:text-slate-700"
                   )}
                 >
                   <Users className="h-4 w-4" />
@@ -198,10 +197,10 @@ export default function Home() {
                 <button
                   onClick={() => setProfilerTab("upload")}
                   className={cn(
-                    "px-6 py-3 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2",
+                    "px-6 py-3 text-sm border-b-2 -mb-px transition-colors flex items-center gap-2",
                     profilerTab === "upload"
-                      ? "border-blue-600 text-blue-600"
-                      : "border-transparent text-slate-500 hover:text-slate-700"
+                      ? "border-black text-black font-bold"
+                      : "font-medium border-transparent text-slate-500 hover:text-slate-700"
                   )}
                 >
                   <Upload className="h-4 w-4" />
@@ -237,15 +236,13 @@ export default function Home() {
                         <button
                           onClick={analyzeTestUser}
                           disabled={!selectedUserId || loading}
-                          className="rounded-md bg-blue-600 px-6 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                          className="rounded-md bg-black px-6 py-2 text-sm font-semibold text-white hover:opacity-80 disabled:opacity-50 flex items-center gap-2"
                         >
                           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                           Analyze
                         </button>
                       </div>
-                      {loading && loadingStep && (
-                        <p className="text-sm text-slate-500 italic mt-1">{loadingStep}</p>
-                      )}
+                      {loading && <InlineAnalyzingIndicator />}
                     </div>
                   )}
                 </div>
@@ -282,11 +279,12 @@ export default function Home() {
                       <button
                         onClick={() => processFile("analyze")}
                         disabled={!file || loading}
-                        className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                        className="w-full rounded-md bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
                       >
                         {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                         Analyze Upload
                       </button>
+                      {loading && <InlineAnalyzingIndicator />}
                     </div>
                   </div>
                 </div>
@@ -347,7 +345,7 @@ export default function Home() {
                   <button
                     onClick={askTestUser}
                     disabled={!selectedUserId || !question || askLoading}
-                    className="w-full rounded-md bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                    className="w-full rounded-md bg-black px-4 py-3 font-semibold text-white hover:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {askLoading && <Loader2 className="h-5 w-5 animate-spin" />}
                     Ask
@@ -446,4 +444,73 @@ function formatToon(profile: any, rec: any) {
   if (!profileToon.endsWith('\n')) profileToon += '\n';
 
   return profileToon + recToon;
+}
+
+const ALL_STATEMENTS = [
+  "Brewing up something good...",
+  "Let me dig into this...",
+  "Hmm, let me see...",
+  "One moment...",
+  "Cooking up an answer...",
+  "Poking around...",
+  "Down the rabbit hole...",
+  "Crunching the numbers...",
+  "Dusting off the archives...",
+  "Connecting the dots...",
+  "Rummaging through my brain...",
+  "Give me a sec...",
+  "Chewing on this...",
+  "Putting on my thinking cap...",
+  "Let me work my magic...",
+  "Diving in...",
+  "Spinning up the gears...",
+  "Cracking open the books...",
+  "Hold my coffee...",
+  "Summoning the answer...",
+  "Untangling this...",
+  "Sniffing out the details...",
+  "Rolling up my sleeves...",
+  "Consulting the oracle..."
+];
+
+function InlineAnalyzingIndicator() {
+  const [stepIndex, setStepIndex] = useState(0);
+  const [steps, setSteps] = useState<string[]>([]);
+
+  useEffect(() => {
+    // Shuffle and pick 10 random statements for this run
+    const shuffled = [...ALL_STATEMENTS].sort(() => 0.5 - Math.random());
+    setSteps(shuffled.slice(0, 10));
+  }, []);
+
+  useEffect(() => {
+    if (steps.length === 0) return;
+    const interval = setInterval(() => {
+      setStepIndex((current) => (current + 1) % steps.length);
+    }, 2200);
+    return () => clearInterval(interval);
+  }, [steps]);
+
+  return (
+    <div className="mt-4 flex items-center gap-4 py-2">
+      <div className="relative flex items-center justify-center w-8 h-8 shrink-0">
+        <div className="relative flex items-center justify-center w-full h-full">
+          {/* Animated Linex Logo */}
+          <img src="/linex-animated.svg" alt="Loading..." className="w-6 h-6" />
+        </div>
+      </div>
+      <div className="h-5 overflow-hidden flex-1 relative">
+        <div
+          className="flex flex-col transition-transform duration-500 ease-in-out"
+          style={{ transform: `translateY(-${stepIndex * 20}px)` }}
+        >
+          {steps.map((step, i) => (
+            <div key={i} className="h-5 flex items-center text-sm font-medium text-slate-600">
+              {step}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
