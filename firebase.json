@@ -1,6 +1,6 @@
 {
     "functions": {
-        "source": ".",
+        "source": "backend",
         "codebase": "default",
         "ignore": [
             ".git",
@@ -12,12 +12,6 @@
             "venv/**",
             ".venv",
             ".venv/**",
-            "web",
-            "web/**",
-            "data",
-            "data/**",
-            "ui",
-            "ui/**",
             "*.log",
             "*-debug.log",
             "gunicorn.ctl",
@@ -29,11 +23,34 @@
         ]
     },
     "hosting": {
+        "target": "linexprofiler",
         "public": "web/out",
         "ignore": [
             "firebase.json",
             "**/.*",
             "**/node_modules/**"
+        ],
+        "rewrites": [
+            {
+                "source": "/api/analyze_transactions",
+                "function": "analyze_transactions"
+            },
+            {
+                "source": "/api/ask_qu",
+                "function": "ask_qu"
+            },
+            {
+                "source": "/api/list_test_users",
+                "function": "list_test_users"
+            },
+            {
+                "source": "/api/analyze_test_user",
+                "function": "analyze_test_user"
+            },
+            {
+                "source": "/api/ask_test_user",
+                "function": "ask_test_user"
+            }
         ]
     }
 }

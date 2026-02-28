@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import re
 
-import anthropic
+from google import genai
 
 from cards.catalog import CardCatalog
-from config import ANTHROPIC_API_KEY, CARDS_PATH, MODEL
+from config import GEMINI_API_KEY, CARDS_PATH, MODEL
 from models.features import UserFeatures
 from models.profile import UserProfile
 from models.recommendation import CardMatch, CardRecommendation
@@ -159,64 +159,13 @@ def _parse_toon_recommendations(raw: str, customer_id: str) -> CardRecommendatio
     )
 
 
-async def match_cards(
-    profile: UserProfile,
-    features: UserFeatures,
-    catalog: CardCatalog | None = None,
-    region_filter: str | None = None,
-) -> CardRecommendation:
-    """Recommend credit cards based on user profile and spending features."""
-    if catalog is None:
-        catalog = CardCatalog(str(CARDS_PATH))
-
-    # Filter cards by region
-    region = region_filter or features.country
-    cards = catalog.get_cards_for_region(region)
-    if not cards:
-        cards = catalog.cards  # Fallback to all cards
-
-    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-
-    profile_toon = profile.raw_toon
-    features_toon = format_features_for_llm(features)
-    cards_toon = format_cards_for_llm(cards)
-
-    user_prompt = build_user_prompt(profile_toon, features_toon, cards_toon)
-
-    response = await client.messages.create(
-        model=MODEL,
-        max_tokens=2000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-
-    raw_text = response.content[0].text.strip()
-
-    # Strip markdown code fences if present
-    if raw_text.startswith("```"):
-        lines = raw_text.split("\n")
-        clean_lines = []
-        in_block = False
-        for line in lines:
-            if line.startswith("```") and not in_block:
-                in_block = True
-                continue
-            if line.startswith("```") and in_block:
-                break
-            if in_block:
-                clean_lines.append(line)
-        raw_text = "\n".join(clean_lines)
-
-    return _parse_toon_recommendations(raw_text, features.customer_id)
-
-
 def match_cards_sync(
     profile: UserProfile,
     features: UserFeatures,
     catalog: CardCatalog | None = None,
     region_filter: str | None = None,
 ) -> CardRecommendation:
-    """Synchronous version of match_cards using the sync Anthropic client."""
+    """Recommend credit cards based on user profile and spending features using Gemini."""
     if catalog is None:
         catalog = CardCatalog(str(CARDS_PATH))
 
@@ -226,7 +175,7 @@ def match_cards_sync(
     if not cards:
         cards = catalog.cards  # Fallback to all cards
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = genai.Client(api_key=GEMINI_API_KEY)
 
     profile_toon = profile.raw_toon
     features_toon = format_features_for_llm(features)
@@ -234,14 +183,16 @@ def match_cards_sync(
 
     user_prompt = build_user_prompt(profile_toon, features_toon, cards_toon)
 
-    response = client.messages.create(
+    response = client.models.generate_content(
         model=MODEL,
-        max_tokens=2000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_prompt}],
+        contents=user_prompt,
+        config=genai.types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            max_output_tokens=2000,
+        ),
     )
 
-    raw_text = response.content[0].text.strip()
+    raw_text = response.text.strip()
 
     # Strip markdown code fences if present
     if raw_text.startswith("```"):

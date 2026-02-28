@@ -9,10 +9,6 @@ except ImportError:
 
 PROJECT_ROOT = Path(__file__).parent
 
-# Anthropic API (legacy)
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("QU_MODEL", "claude-sonnet-4-20250514")
-
 # Gemini API
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 MODEL = os.environ.get("QU_MODEL", "gemini-2.0-flash")

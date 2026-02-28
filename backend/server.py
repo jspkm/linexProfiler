@@ -8,18 +8,20 @@ from __future__ import annotations
 
 import json
 
+from google import genai
+from google.genai import types
 from mcp.server.fastmcp import FastMCP
 
-from analysis.card_matcher import match_cards
+from analysis.card_matcher import match_cards_sync
 from analysis.feature_engine import compute_features
 from analysis.preprocessor import (
     clean_transactions,
     load_test_user,
     parse_json_transactions,
 )
-from analysis.profiler import profile_user
+from analysis.profiler import profile_user_sync
 from cards.catalog import CardCatalog
-from config import CARDS_PATH
+from config import CARDS_PATH, GEMINI_API_KEY, MODEL
 from utils.formatters import format_features_for_llm
 
 mcp = FastMCP("qu")
@@ -49,8 +51,8 @@ async def profile_user_tool(
     user_txns = parse_json_transactions(transactions, customer_id)
     clean = clean_transactions(user_txns)
     features = compute_features(clean)
-    user_profile = await profile_user(features)
-    card_rec = await match_cards(user_profile, features, _catalog)
+    user_profile = profile_user_sync(features)
+    card_rec = match_cards_sync(user_profile, features, _catalog)
 
     return {
         "profile": user_profile.model_dump(),
@@ -100,8 +102,8 @@ async def match_card_tool(
     user_txns = parse_json_transactions(transactions, customer_id)
     clean = clean_transactions(user_txns)
     features = compute_features(clean)
-    user_profile = await profile_user(features)
-    card_rec = await match_cards(user_profile, features, _catalog, region)
+    user_profile = profile_user_sync(features)
+    card_rec = match_cards_sync(user_profile, features, _catalog, region)
     return card_rec.model_dump()
 
 
@@ -124,32 +126,30 @@ async def ask_qu_tool(
     Returns:
         The answer with reasoning and evidence.
     """
-    import anthropic
-    from config import ANTHROPIC_API_KEY, MODEL
-
     user_txns = parse_json_transactions(transactions, customer_id)
     clean = clean_transactions(user_txns)
     features = compute_features(clean)
     features_toon = format_features_for_llm(features)
 
-    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-    response = await client.messages.create(
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    system = (
+        "You are a financial analyst for the Linex loyalty platform. "
+        "Given a user's spending data (in TOON format), answer the question. "
+        "Be specific, cite evidence from the data, and state your confidence level."
+    )
+    response = client.models.generate_content(
         model=MODEL,
-        max_tokens=1000,
-        system=(
-            "You are a financial analyst for the Linex loyalty platform. "
-            "Given a user's spending data (in TOON format), answer the question. "
-            "Be specific, cite evidence from the data, and state your confidence level."
+        contents=f"Based on this spending data:\n\n{features_toon}\n\nQuestion: {question}",
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            temperature=0.0,
+            max_output_tokens=1000,
         ),
-        messages=[{
-            "role": "user",
-            "content": f"Based on this spending data:\n\n{features_toon}\n\nQuestion: {question}",
-        }],
     )
 
     return {
         "question": question,
-        "answer": response.content[0].text,
+        "answer": response.text.strip(),
         "customer_id": customer_id,
     }
 

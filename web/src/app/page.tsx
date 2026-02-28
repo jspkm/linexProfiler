@@ -5,7 +5,9 @@ import Papa from "papaparse";
 import { Upload, FileText, Search, Activity, Loader2, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const CLOUD_FUNCTION_URL = "http://127.0.0.1:5050/linexonewhitelabeler/us-central1";
+const CLOUD_FUNCTION_URL = process.env.NODE_ENV === "development"
+  ? "http://127.0.0.1:5050/linexonewhitelabeler/us-central1"
+  : "/api";
 
 type View = "profiler" | "ask";
 type ProfilerTab = "test" | "upload";
@@ -66,39 +68,22 @@ export default function Home() {
   const analyzeTestUser = async () => {
     if (!selectedUserId) return;
     setLoading(true);
-    setLoadingStep("Starting analysis...");
+    setLoadingStep("Profiling with Gemini...");
     setError("");
     setResults(null);
     try {
       const res = await fetch(`${CLOUD_FUNCTION_URL}/analyze_test_user`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: selectedUserId, stream: true }),
+        body: JSON.stringify({ user_id: selectedUserId }),
       });
-      if (!res.ok) throw new Error("Failed to analyze test user");
-
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) throw new Error("No stream available");
-
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const payload = JSON.parse(line.slice(6));
-            if (payload.step === "profiling") setLoadingStep("Profiling with Gemini...");
-            else if (payload.step === "matching") setLoadingStep("Matching credit cards...");
-            else if (payload.step === "done") {
-              setResults(payload.result);
-            }
-          }
-        }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to analyze test user");
       }
+      setLoadingStep("Matching credit cards...");
+      const data = await res.json();
+      setResults(data);
     } catch (err: any) {
       setError(err.message || "An error occurred");
     } finally {

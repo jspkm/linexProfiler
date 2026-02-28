@@ -1,6 +1,10 @@
 """Firebase Cloud Functions entry point for the Linex Profiler Quant Agent."""
 
 import json
+import random
+
+from google import genai
+from google.genai import types
 
 from firebase_functions import https_fn, options
 from firebase_admin import initialize_app, credentials
@@ -11,7 +15,8 @@ from analysis.feature_engine import compute_features
 from analysis.preprocessor import clean_transactions, parse_csv_transactions, parse_json_transactions, load_test_user
 from analysis.profiler import profile_user_sync
 from cards.catalog import CardCatalog
-from config import CARDS_PATH, FIREBASE_CREDENTIALS_PATH, TEST_USERS_DIR
+from config import CARDS_PATH, FIREBASE_CREDENTIALS_PATH, GEMINI_API_KEY, MODEL, TEST_USERS_DIR
+from utils.formatters import format_features_for_llm
 
 # Initialize Firebase Admin SDK
 try:
@@ -105,13 +110,9 @@ def ask_qu(req: https_fn.Request) -> https_fn.Response:
         return https_fn.Response(status=204)
 
     try:
-        import anthropic
-        from config import ANTHROPIC_API_KEY, MODEL
-        from utils.formatters import format_features_for_llm
-
-        if not ANTHROPIC_API_KEY:
+        if not GEMINI_API_KEY:
             return https_fn.Response(
-                json.dumps({"error": "ANTHROPIC_API_KEY not configured"}),
+                json.dumps({"error": "GEMINI_API_KEY not configured"}),
                 status=500,
                 content_type="application/json"
             )
@@ -133,25 +134,26 @@ def ask_qu(req: https_fn.Request) -> https_fn.Response:
         features = compute_features(clean)
         features_toon = format_features_for_llm(features)
 
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        response = client.messages.create(
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        system = (
+            "You are a financial analyst for the Linex loyalty platform. "
+            "Given a user's spending data (in TOON format), answer the question. "
+            "Be specific, cite evidence from the data, and state your confidence level."
+        )
+        response = client.models.generate_content(
             model=MODEL,
-            max_tokens=1000,
-            system=(
-                "You are a financial analyst for the Linex loyalty platform. "
-                "Given a user's spending data (in TOON format), answer the question. "
-                "Be specific, cite evidence from the data, and state your confidence level."
+            contents=f"Based on this spending data:\n\n{features_toon}\n\nQuestion: {question}",
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=0.0,
+                max_output_tokens=1000,
             ),
-            messages=[{
-                "role": "user",
-                "content": f"Based on this spending data:\n\n{features_toon}\n\nQuestion: {question}",
-            }],
         )
 
         return https_fn.Response(
             json.dumps({
                 "question": question,
-                "answer": response.content[0].text,
+                "answer": response.text.strip(),
                 "customer_id": customer_id,
             }),
             status=200,
@@ -187,8 +189,9 @@ def list_test_users(req: https_fn.Request) -> https_fn.Response:
             if f.name.startswith("test-user-") and f.name.endswith(".csv"):
                 uid = f.name.replace("test-user-", "").replace(".csv", "")
                 ids.append(uid)
+        selected = random.sample(ids, min(20, len(ids)))
         return https_fn.Response(
-            json.dumps({"user_ids": ids[:20]}),
+            json.dumps({"user_ids": selected}),
             status=200,
             content_type="application/json"
         )
@@ -256,13 +259,9 @@ def ask_test_user(req: https_fn.Request) -> https_fn.Response:
     if req.method == "OPTIONS":
         return https_fn.Response(status=204)
     try:
-        import anthropic
-        from config import ANTHROPIC_API_KEY, MODEL
-        from utils.formatters import format_features_for_llm
-
-        if not ANTHROPIC_API_KEY:
+        if not GEMINI_API_KEY:
             return https_fn.Response(
-                json.dumps({"error": "ANTHROPIC_API_KEY not configured"}),
+                json.dumps({"error": "GEMINI_API_KEY not configured"}),
                 status=500,
                 content_type="application/json"
             )
@@ -283,25 +282,26 @@ def ask_test_user(req: https_fn.Request) -> https_fn.Response:
         features = compute_features(clean)
         features_toon = format_features_for_llm(features)
 
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        response = client.messages.create(
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        system = (
+            "You are a financial analyst for the Linex loyalty platform. "
+            "Given a user's spending data (in TOON format), answer the question. "
+            "Be specific, cite evidence from the data, and state your confidence level."
+        )
+        response = client.models.generate_content(
             model=MODEL,
-            max_tokens=1000,
-            system=(
-                "You are a financial analyst for the Linex loyalty platform. "
-                "Given a user's spending data (in TOON format), answer the question. "
-                "Be specific, cite evidence from the data, and state your confidence level."
+            contents=f"Based on this spending data:\n\n{features_toon}\n\nQuestion: {question}",
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=0.0,
+                max_output_tokens=1000,
             ),
-            messages=[{
-                "role": "user",
-                "content": f"Based on this spending data:\n\n{features_toon}\n\nQuestion: {question}",
-            }],
         )
 
         return https_fn.Response(
             json.dumps({
                 "question": question,
-                "answer": response.content[0].text,
+                "answer": response.text.strip(),
                 "user_id": user_id,
             }),
             status=200,

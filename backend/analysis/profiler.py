@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 
-import anthropic
+from google import genai
 
-from config import ANTHROPIC_API_KEY, MODEL
+from config import GEMINI_API_KEY, MODEL
 from models.features import UserFeatures
 from models.profile import Attribute, UserProfile
 from prompts.profiling import SYSTEM_PROMPT, build_user_prompt
@@ -53,22 +53,8 @@ def _parse_toon_profile(raw: str, customer_id: str) -> UserProfile:
     )
 
 
-async def profile_user(features: UserFeatures) -> UserProfile:
-    """Send features to Claude and get a TOON-formatted demographic profile back."""
-    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-    features_toon = format_features_for_llm(features)
-    user_prompt = build_user_prompt(features_toon)
-
-    response = await client.messages.create(
-        model=MODEL,
-        max_tokens=2000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-
-    raw_text = response.content[0].text.strip()
-
-    # Strip markdown code fences if present
+def _strip_code_fences(raw_text: str) -> str:
+    """Strip markdown code fences if present."""
     if raw_text.startswith("```"):
         lines = raw_text.split("\n")
         clean_lines = []
@@ -81,39 +67,26 @@ async def profile_user(features: UserFeatures) -> UserProfile:
                 break
             if in_block:
                 clean_lines.append(line)
-        raw_text = "\n".join(clean_lines)
-
-    return _parse_toon_profile(raw_text, features.customer_id)
+        return "\n".join(clean_lines)
+    return raw_text
 
 
 def profile_user_sync(features: UserFeatures) -> UserProfile:
-    """Synchronous version of profile_user using the sync Anthropic client."""
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    """Profile a user using the Gemini API."""
+    client = genai.Client(api_key=GEMINI_API_KEY)
     features_toon = format_features_for_llm(features)
     user_prompt = build_user_prompt(features_toon)
 
-    response = client.messages.create(
+    response = client.models.generate_content(
         model=MODEL,
-        max_tokens=2000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_prompt}],
+        contents=user_prompt,
+        config=genai.types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            max_output_tokens=2000,
+        ),
     )
 
-    raw_text = response.content[0].text.strip()
-
-    # Strip markdown code fences if present
-    if raw_text.startswith("```"):
-        lines = raw_text.split("\n")
-        clean_lines = []
-        in_block = False
-        for line in lines:
-            if line.startswith("```") and not in_block:
-                in_block = True
-                continue
-            if line.startswith("```") and in_block:
-                break
-            if in_block:
-                clean_lines.append(line)
-        raw_text = "\n".join(clean_lines)
+    raw_text = response.text.strip()
+    raw_text = _strip_code_fences(raw_text)
 
     return _parse_toon_profile(raw_text, features.customer_id)

@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "qu — Linex Financial Quant",
+  title: "qu — Linex Profiler Quant Agent",
   description: "Profiler quant agent for the Linex loyalty platform",
 };
 

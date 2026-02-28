@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "linexonewhitelabeler"
-  }
+  },
+  "targets": {
+    "linexonewhitelabeler": {
+      "hosting": {
+        "linexprofiler": [
+          "linexprofiler"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

@@ -7,11 +7,15 @@ build/
 *.egg
 
 # Data (large files)
-data/retail.csv
+backend/data/retail.csv
 
 # Environment
 .env
 .env.*
+
+# Virtual environments
+backend/venv/
+venv/
 
 # macOS
 .DS_Store
@@ -25,13 +29,6 @@ data/retail.csv
 # Claude
 .claude/
 
-# Slides / docs
-*.pdf
-
-# Streamlit
-.streamlit/
-secrets.toml
-
 # Node / Frontend
 node_modules/
 
@@ -41,4 +38,4 @@ node_modules/
 firebase-debug.log
 
 # Mock users / Test Data
-data/test-users/
+backend/data/test-users/

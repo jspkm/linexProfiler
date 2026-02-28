@@ -1,9 +1,7 @@
-anthropic>=0.40
+google-genai>=1.0
 mcp>=1.7
 pandas>=2.0
 pydantic>=2.0
-streamlit>=1.30
-plotly>=5.0
 firebase-admin>=6.2.0
 firebase-functions>=0.1.0
 functions-framework>=3.0.0
