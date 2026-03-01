@@ -2,19 +2,20 @@
 
 import { useState, useEffect } from "react";
 import Papa from "papaparse";
-import { Upload, FileText, Search, Activity, Loader2, Users } from "lucide-react";
+import { Upload, FileText, Search, Activity, Loader2, Users, PanelLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const CLOUD_FUNCTION_URL = process.env.NODE_ENV === "development"
   ? "http://127.0.0.1:5050/linexonewhitelabeler/us-central1"
   : "/api";
 
-type View = "profiler" | "ask";
+type View = "profiler";
 type ProfilerTab = "test" | "upload";
 
 export default function Home() {
   const [activeView, setActiveView] = useState<View>("profiler");
   const [profilerTab, setProfilerTab] = useState<ProfilerTab>("test");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // Test Users State
   const [testUserIds, setTestUserIds] = useState<string[]>([]);
@@ -30,11 +31,6 @@ export default function Home() {
   const [loadingStep, setLoadingStep] = useState("");
   const [results, setResults] = useState<any>(null);
   const [error, setError] = useState("");
-
-  // Ask Qu State
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
-  const [askLoading, setAskLoading] = useState(false);
 
   // Load test user IDs on mount
   useEffect(() => {
@@ -92,11 +88,10 @@ export default function Home() {
     }
   };
 
-  const processFile = async (action: "analyze" | "ask") => {
+  const processFile = async () => {
     if (!file) return;
 
-    if (action === "analyze") setLoading(true);
-    if (action === "ask") setAskLoading(true);
+    setLoading(true);
     setError("");
 
     try {
@@ -104,307 +99,206 @@ export default function Home() {
       const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
       const transactions = parsed.data;
 
-      if (action === "analyze") {
-        const res = await fetch(`${CLOUD_FUNCTION_URL}/analyze_transactions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transactions, customer_id: customerId }),
-        });
+      const res = await fetch(`${CLOUD_FUNCTION_URL}/analyze_transactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transactions, customer_id: customerId }),
+      });
 
-        if (!res.ok) throw new Error("Failed to analyze transactions");
-        const data = await res.json();
-        setResults(data);
-      } else {
-        const res = await fetch(`${CLOUD_FUNCTION_URL}/ask_qu`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transactions, customer_id: customerId, question }),
-        });
-
-        if (!res.ok) throw new Error("Failed to ask question");
-        const data = await res.json();
-        setAnswer(data.answer);
-      }
+      if (!res.ok) throw new Error("Failed to analyze transactions");
+      const data = await res.json();
+      setResults(data);
     } catch (err: any) {
       setError(err.message || "An error occurred");
     } finally {
-      if (action === "analyze") setLoading(false);
-      if (action === "ask") setAskLoading(false);
+      setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-[#F3F4F6]">
       {/* Sidebar */}
-      <aside className="w-64 border-r bg-white p-6 shadow-sm">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight text-black">linex qu</h1>
+      <aside
+        className={cn(
+          "border-r border-[#E5E7EB] bg-[#F9FAFB] py-6 flex flex-col shrink-0 transition-[width] duration-300 ease-in-out overflow-hidden",
+          isSidebarOpen ? "w-56 px-4" : "w-16 px-2 items-center"
+        )}
+      >
+        <div className={cn("mb-8 flex items-center", isSidebarOpen ? "justify-between w-full pl-2" : "justify-center")}>
+          {isSidebarOpen && <h1 className="text-2xl font-bold tracking-tight text-black whitespace-nowrap">linex qu</h1>}
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className={cn("p-1.5 text-slate-500 hover:bg-slate-200 rounded-md shrink-0", isSidebarOpen ? "-mr-2" : "")}
+            title={isSidebarOpen ? "Close sidebar" : "Open sidebar"}
+          >
+            <PanelLeft className="h-5 w-5" />
+          </button>
         </div>
 
-        <nav className="space-y-1">
+        <nav className="space-y-1 w-full">
           <button
             onClick={() => setActiveView("profiler")}
             className={cn(
-              "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              "flex w-full items-center rounded-md py-2 text-sm font-medium transition-colors",
+              isSidebarOpen ? "px-3 gap-3 justify-start" : "px-0 justify-center",
               activeView === "profiler"
-                ? "bg-slate-100 text-slate-900"
-                : "text-slate-600 hover:bg-slate-50"
+                ? "bg-slate-200 text-slate-900" /* slightly darker for selected */
+                : "text-slate-600 hover:bg-slate-100"
             )}
+            title={!isSidebarOpen ? "User Profiler" : undefined}
           >
-            <Activity className="h-4 w-4" />
-            User Profiler
-          </button>
-          <button
-            onClick={() => setActiveView("ask")}
-            className={cn(
-              "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-              activeView === "ask"
-                ? "bg-slate-100 text-slate-900"
-                : "text-slate-600 hover:bg-slate-50"
-            )}
-          >
-            <Search className="h-4 w-4" />
-            Ask qu
+            <Activity className="h-5 w-5 shrink-0" />
+            {isSidebarOpen && <span className="whitespace-nowrap">User Profiler</span>}
           </button>
         </nav>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-8">
-        <div className="mx-auto max-w-6xl space-y-8">
-          {error && (
-            <div className="rounded-md bg-red-50 p-4 text-red-700 border border-red-200">
-              {error}
-            </div>
-          )}
-
-          {activeView === "profiler" ? (
-            <div className="space-y-8">
-              {/* Tabs: Test Users | Upload CSV */}
-              <div className="flex border-b">
-                <button
-                  onClick={() => setProfilerTab("test")}
-                  className={cn(
-                    "px-6 py-3 text-sm border-b-2 -mb-px transition-colors flex items-center gap-2",
-                    profilerTab === "test"
-                      ? "border-black text-black font-bold"
-                      : "font-medium border-transparent text-slate-500 hover:text-slate-700"
-                  )}
-                >
-                  <Users className="h-4 w-4" />
-                  Test Users
-                </button>
-                <button
-                  onClick={() => setProfilerTab("upload")}
-                  className={cn(
-                    "px-6 py-3 text-sm border-b-2 -mb-px transition-colors flex items-center gap-2",
-                    profilerTab === "upload"
-                      ? "border-black text-black font-bold"
-                      : "font-medium border-transparent text-slate-500 hover:text-slate-700"
-                  )}
-                >
-                  <Upload className="h-4 w-4" />
-                  Upload CSV
-                </button>
+      <main className="flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out">
+        <div className="flex-1 p-8">
+          <div className="mx-auto max-w-6xl space-y-8">
+            {error && (
+              <div className="rounded-md bg-red-50 p-4 text-red-700 border border-red-200">
+                {error}
               </div>
+            )}
 
-              {/* Test Users Tab */}
-              {profilerTab === "test" && (
-                <div className="rounded-xl border bg-white p-6 shadow-sm">
-                  <h2 className="mb-4 text-lg font-semibold">Select Test User</h2>
-                  {testUsersLoading ? (
-                    <div className="flex items-center gap-2 text-slate-500">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Loading test users...
-                    </div>
-                  ) : testUserIds.length === 0 ? (
-                    <p className="text-sm text-red-500">No test users found. Check data/test-users/ directory.</p>
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center gap-4">
-                        <select
-                          value={selectedUserId}
-                          onChange={(e) => setSelectedUserId(e.target.value)}
-                          className="rounded-md border px-3 py-2 text-sm bg-white min-w-[200px]"
-                        >
-                          {testUserIds.map((id) => (
-                            <option key={id} value={id}>
-                              User {id}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={analyzeTestUser}
-                          disabled={!selectedUserId || loading}
-                          className="rounded-md bg-black px-6 py-2 text-sm font-semibold text-white hover:opacity-80 disabled:opacity-50 flex items-center gap-2"
-                        >
-                          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-                          Analyze
-                        </button>
-                      </div>
-                      {loading && <InlineAnalyzingIndicator />}
-                    </div>
-                  )}
-                </div>
-              )}
+            {activeView === "profiler" ? (
+              <div className="space-y-8">
 
-              {/* Upload CSV Tab */}
-              {profilerTab === "upload" && (
-                <div className="rounded-xl border bg-white p-6 shadow-sm">
-                  <h2 className="mb-4 text-lg font-semibold">Upload CSV</h2>
-                  <div className="flex items-center gap-4">
-                    <label className="flex cursor-pointer items-center justify-center rounded-md border-2 border-dashed border-slate-300 p-6 hover:border-blue-500 hover:bg-slate-50 transition-colors w-full max-w-md">
-                      <div className="text-center">
-                        <Upload className="mx-auto h-8 w-8 text-slate-400 mb-2" />
-                        <span className="text-sm text-slate-600">
-                          {file ? file.name : "Click or drag CSV here"}
-                        </span>
-                      </div>
-                      <input
-                        type="file"
-                        accept=".csv"
-                        className="hidden"
-                        onChange={handleFileUpload}
-                      />
-                    </label>
-
-                    <div className="space-y-4">
-                      <input
-                        type="text"
-                        className="w-full rounded-md border px-3 py-2 text-sm"
-                        placeholder="Customer ID (optional)"
-                        value={customerId}
-                        onChange={(e) => setCustomerId(e.target.value)}
-                      />
-                      <button
-                        onClick={() => processFile("analyze")}
-                        disabled={!file || loading}
-                        className="w-full rounded-md bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
-                      >
-                        {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-                        Analyze Upload
-                      </button>
-                      {loading && <InlineAnalyzingIndicator />}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Results Dashboard */}
-              {results && (
-                <div className="space-y-8">
-                  {/* TOON Results Output */}
-                  <div className="rounded-xl border bg-white p-6 shadow-sm overflow-hidden">
-                    <pre className="text-sm text-slate-900 overflow-x-auto whitespace-pre-wrap">
-                      {formatToon(results.profile, results.card_recommendations)}
-                    </pre>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-8">
-              {/* Ask Qu View */}
-              <div className="rounded-xl border bg-white p-8 shadow-sm">
-                <h2 className="mb-2 text-2xl font-bold">Ask qu</h2>
-                <p className="mb-8 text-slate-500">Ask any question about a person based on their transaction history.</p>
-
-                <div className="space-y-6 max-w-2xl">
-                  {/* Test User Selector */}
-                  <div>
-                    <label className="block text-sm font-medium mb-2">1. Select Test User</label>
-                    <select
-                      value={selectedUserId}
-                      onChange={(e) => setSelectedUserId(e.target.value)}
-                      className="rounded-md border px-3 py-2 text-sm bg-white min-w-[200px]"
+                <div className="rounded-xl border border-[#E5E7EB] bg-white shadow-sm flex flex-col min-h-[260px]">
+                  {/* Tabs Header */}
+                  <div className="flex border-b border-[#E5E7EB] px-2 pt-2">
+                    <button
+                      onClick={() => setProfilerTab("test")}
+                      className={cn(
+                        "px-6 py-3 text-sm border-b-2 -mb-px transition-colors flex items-center gap-2",
+                        profilerTab === "test"
+                          ? "border-black text-black font-bold"
+                          : "font-medium border-transparent text-slate-500 hover:text-slate-700"
+                      )}
                     >
-                      {testUserIds.map((id) => (
-                        <option key={id} value={id}>
-                          User {id}
-                        </option>
-                      ))}
-                    </select>
+                      <Users className="h-4 w-4" />
+                      Test Users
+                    </button>
+                    <button
+                      onClick={() => setProfilerTab("upload")}
+                      className={cn(
+                        "px-6 py-3 text-sm border-b-2 -mb-px transition-colors flex items-center gap-2",
+                        profilerTab === "upload"
+                          ? "border-black text-black font-bold"
+                          : "font-medium border-transparent text-slate-500 hover:text-slate-700"
+                      )}
+                    >
+                      <Upload className="h-4 w-4" />
+                      Upload CSV
+                    </button>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium mb-2">2. Ask a Question</label>
-                    <input
-                      type="text"
-                      className="w-full rounded-md border px-4 py-3"
-                      placeholder="e.g. Is this person likely a student? What's their estimated income?"
-                      value={question}
-                      onChange={(e) => setQuestion(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && selectedUserId && question) {
-                          askTestUser();
-                        }
-                      }}
-                    />
+                  {/* Tab Content */}
+                  <div className="p-6 flex-1 flex flex-col">
+                    {/* Test Users Tab */}
+                    {profilerTab === "test" && (
+                      <div className="flex-1 flex flex-col">
+                        {testUsersLoading ? (
+                          <div className="flex items-center gap-2 text-slate-500">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Loading test users...
+                          </div>
+                        ) : testUserIds.length === 0 ? (
+                          <p className="text-sm text-red-500">No test users found. Check data/test-users/ directory.</p>
+                        ) : (
+                          <>
+                            <div>
+                              <select
+                                value={selectedUserId}
+                                onChange={(e) => setSelectedUserId(e.target.value)}
+                                className="rounded-md border px-3 py-2 text-sm bg-white min-w-[200px]"
+                              >
+                                {testUserIds.map((id) => (
+                                  <option key={id} value={id}>
+                                    User {id}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="mt-auto flex items-center gap-4 pt-4">
+                              <button
+                                onClick={analyzeTestUser}
+                                disabled={!selectedUserId || loading}
+                                className="rounded-md bg-black px-6 py-2 text-sm font-semibold text-white hover:opacity-80 disabled:opacity-50 flex items-center gap-2 shrink-0"
+                              >
+                                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                                Analyze
+                              </button>
+                              {loading && <InlineAnalyzingIndicator />}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Upload CSV Tab */}
+                    {profilerTab === "upload" && (
+                      <div className="flex-1 flex flex-col">
+                        <div className="flex items-center gap-6">
+                          <label className="flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed border-slate-300 py-4 hover:border-blue-500 hover:bg-slate-50 transition-colors w-1/2 shrink-0">
+                            <div className="text-center">
+                              <Upload className="mx-auto h-5 w-5 text-slate-400 mb-1" />
+                              <span className="text-sm text-slate-600">
+                                Click or drag CSV here
+                              </span>
+                            </div>
+                            <input
+                              type="file"
+                              accept=".csv"
+                              className="hidden"
+                              onChange={handleFileUpload}
+                            />
+                          </label>
+
+                          {file && (
+                            <div className="flex-1 text-sm font-semibold text-slate-700 truncate">
+                              {file.name}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="mt-auto flex items-center gap-4 pt-4">
+                          <button
+                            onClick={() => processFile()}
+                            disabled={!file || loading}
+                            className="rounded-md bg-black px-6 py-2 text-sm font-semibold text-white hover:opacity-80 disabled:opacity-50 flex items-center gap-2 shrink-0"
+                          >
+                            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                            Analyze
+                          </button>
+                          {loading && <InlineAnalyzingIndicator />}
+                        </div>
+                      </div>
+                    )}
                   </div>
-
-                  <button
-                    onClick={askTestUser}
-                    disabled={!selectedUserId || !question || askLoading}
-                    className="w-full rounded-md bg-black px-4 py-3 font-semibold text-white hover:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {askLoading && <Loader2 className="h-5 w-5 animate-spin" />}
-                    Ask
-                  </button>
-
-                  {answer && (
-                    <div className="mt-8 rounded-lg bg-blue-50 p-6 border border-blue-100">
-                      <h3 className="text-sm font-bold text-blue-900 mb-2">Answer</h3>
-                      <div className="text-blue-900 whitespace-pre-wrap text-sm leading-relaxed">{answer}</div>
-                    </div>
-                  )}
                 </div>
+
+                {/* Results Dashboard */}
+                {results && (
+                  <div className="space-y-8">
+                    {/* TOON Results Output */}
+                    <div className="overflow-hidden px-2">
+                      <pre className="text-sm text-slate-900 overflow-x-auto whitespace-pre-wrap">
+                        {formatToon(results.profile, results.card_recommendations)}
+                      </pre>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            ) : null}
+          </div>
         </div>
       </main>
     </div>
   );
-
-  async function askTestUser() {
-    if (!selectedUserId || !question) return;
-    setAskLoading(true);
-    setError("");
-    setAnswer("");
-
-    try {
-      // First analyze the test user to get features
-      const analyzeRes = await fetch(`${CLOUD_FUNCTION_URL}/analyze_test_user`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: selectedUserId }),
-      });
-      if (!analyzeRes.ok) throw new Error("Failed to load test user data");
-      // We don't actually need the full analysis for ask — let's use a dedicated approach
-      // The ask_qu endpoint needs transactions, so we'll load the CSV from the test user endpoint
-      // For now, we'll make the backend handle test users for ask too via a new approach
-      // Actually, let's just read the test user file and send as transactions
-    } catch {
-      // fallback
-    }
-
-    try {
-      // Use the test user CSV by loading it through the backend
-      const res = await fetch(`${CLOUD_FUNCTION_URL}/ask_test_user`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: selectedUserId, question }),
-      });
-
-      if (!res.ok) throw new Error("Failed to ask question");
-      const data = await res.json();
-      setAnswer(data.answer);
-    } catch (err: any) {
-      setError(err.message || "An error occurred");
-    } finally {
-      setAskLoading(false);
-    }
-  }
 }
 
 // Helpers
@@ -492,7 +386,7 @@ function InlineAnalyzingIndicator() {
   }, [steps]);
 
   return (
-    <div className="mt-4 flex items-center gap-4 py-2">
+    <div className="flex items-center gap-4 flex-1">
       <div className="relative flex items-center justify-center w-8 h-8 shrink-0">
         <div className="relative flex items-center justify-center w-full h-full">
           {/* Animated Linex Logo */}
