@@ -278,11 +278,10 @@ from analysis.preprocessor import parse_csv_transactions, clean_transactions as 
 from profile_generator.feature_derivation import derive_batch_features
 from profile_generator.trainer import train_profiles as _train_profiles
 from profile_generator.assigner import assign_profile as _assign_profile
-from profile_generator.transitions import build_transition_matrix as _build_tmatrix
-from profile_generator.simulator import run_simulation as _run_simulation
 from profile_generator.versioning import (
     save_catalog, load_catalog, list_catalogs, get_latest_catalog, fork_catalog,
 )
+from profile_generator.experiment import start_experiment, get_experiment_status
 from models.transaction import UserTransactions
 
 
@@ -439,57 +438,7 @@ def list_profile_catalogs_endpoint():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/linexonewhitelabeler/us-central1/build_transition_matrix", methods=["POST"])
-def build_transition_matrix_endpoint():
-    try:
-        data = request.get_json(silent=True) or {}
-        catalog_version = data.get("catalog_version", "")
-        time_window = data.get("time_window", DEFAULT_TIME_WINDOW)
-        source = data.get("source", "test-users")
 
-        # Load catalog
-        if catalog_version:
-            catalog = load_catalog(catalog_version)
-        else:
-            catalog = get_latest_catalog()
-        if not catalog:
-            return jsonify({"error": "No profile catalog found"}), 404
-
-        # Load transactions
-        if source == "retail":
-            users = _load_retail_users()
-        else:
-            users = _load_all_test_users()
-
-        if not users:
-            return jsonify({"error": "No users found"}), 400
-
-        # Build matrix
-        tm = _build_tmatrix(users, catalog, time_window)
-        return jsonify(tm.model_dump(mode="json"))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/linexonewhitelabeler/us-central1/run_simulation", methods=["POST"])
-def run_simulation_endpoint():
-    try:
-        data = request.get_json(silent=True) or {}
-        initial_population = data.get("initial_population", [])
-        matrix_data = data.get("transition_matrix", {})
-        periods = data.get("periods", 5)
-        modified_matrix = data.get("modified_matrix")
-
-        if not initial_population or not matrix_data:
-            return jsonify({"error": "Missing initial_population or transition_matrix"}), 400
-
-        from models.profile_catalog import TransitionMatrix
-        tm = TransitionMatrix.model_validate(matrix_data)
-
-        result = _run_simulation(initial_population, tm, periods, modified_matrix)
-        return jsonify(result.model_dump(mode="json"))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/linexonewhitelabeler/us-central1/fork_catalog", methods=["POST"])
@@ -510,6 +459,36 @@ def fork_catalog_endpoint():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/linexonewhitelabeler/us-central1/start_experiment", methods=["POST"])
+def start_experiment_endpoint():
+    try:
+        data = request.get_json(silent=True) or {}
+        catalog_version = data.get("catalog_version", "")
+        max_iterations = data.get("max_iterations", 50)
+        patience = data.get("patience", 3)
+
+        if not catalog_version:
+            return jsonify({"error": "Missing catalog_version"}), 400
+
+        experiment_id = start_experiment(
+            catalog_version,
+            max_iterations=int(max_iterations),
+            patience=int(patience),
+        )
+        return jsonify({"experiment_id": experiment_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/linexonewhitelabeler/us-central1/experiment_status/<experiment_id>", methods=["GET"])
+def get_experiment_status_endpoint(experiment_id):
+    try:
+        state = get_experiment_status(experiment_id)
+        if not state:
+            return jsonify({"error": "Experiment not found"}), 404
+            
+        return jsonify(state.model_dump(mode="json"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     print(f"Starting local dev server on http://127.0.0.1:5050 (model: {MODEL})")
@@ -524,8 +503,8 @@ if __name__ == "__main__":
     print("  - POST /linexonewhitelabeler/us-central1/assign_profile")
     print("  - GET  /linexonewhitelabeler/us-central1/profile_catalog")
     print("  - GET  /linexonewhitelabeler/us-central1/list_profile_catalogs")
-    print("  - POST /linexonewhitelabeler/us-central1/build_transition_matrix")
-    print("  - POST /linexonewhitelabeler/us-central1/run_simulation")
     print("  - POST /linexonewhitelabeler/us-central1/fork_catalog")
+    print("  - POST /linexonewhitelabeler/us-central1/start_experiment")
+    print("  - GET  /linexonewhitelabeler/us-central1/experiment_status/<id>")
     app.run(host="127.0.0.1", port=5050, debug=False)
 

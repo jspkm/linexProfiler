@@ -20,7 +20,7 @@ const PRIMARY_FEATURES = new Set(BEHAVIORAL_AXES.map(a => a.features[0]));
 
 type View = "profiler" | "generator";
 type ProfilerTab = "test" | "upload";
-type GeneratorTab = "train" | "catalog";
+type GeneratorTab = "train" | "catalog" | "experiment";
 
 export default function Home() {
   const [activeView, setActiveView] = useState<View>("profiler");
@@ -52,6 +52,11 @@ export default function Home() {
   const [catalogList, setCatalogList] = useState<any[]>([]);
   const [selectedCatalogVersion, setSelectedCatalogVersion] = useState("");
   const [expandedProfile, setExpandedProfile] = useState<string | null>(null);
+
+  // Experiment State
+  const [experimentId, setExperimentId] = useState<string | null>(null);
+  const [experimentState, setExperimentState] = useState<any>(null);
+  const [experimentPolling, setExperimentPolling] = useState(false);
 
   // Load test user IDs on mount
   useEffect(() => {
@@ -197,11 +202,64 @@ export default function Home() {
 
   // Always show the latest catalog when the Catalog tab is selected
   useEffect(() => {
-    if (activeView === "generator" && generatorTab === "catalog") {
+    if (activeView === "generator" && (generatorTab === "catalog" || generatorTab === "experiment")) {
       loadCatalog();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView, generatorTab]);
+
+  // Experiment polling logic
+  useEffect(() => {
+    if (!experimentId || !experimentPolling) return;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`${CLOUD_FUNCTION_URL}/experiment_status/${experimentId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setExperimentState(data);
+
+          if (data.status === "completed" || data.status === "failed") {
+            setExperimentPolling(false);
+          }
+        }
+      } catch {
+        // silently fail on poll
+      }
+    };
+
+    poll(); // Initial poll
+    const interval = setInterval(poll, 2000);
+    return () => clearInterval(interval);
+  }, [experimentId, experimentPolling]);
+
+  const startExperiment = async () => {
+    if (!selectedCatalogVersion) return;
+
+    setGenLoading(true);
+    setGenError("");
+    setExperimentState(null);
+    setExperimentId(null);
+
+    try {
+      const res = await fetch(`${CLOUD_FUNCTION_URL}/start_experiment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ catalog_version: selectedCatalogVersion }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to start experiment");
+      }
+      const data = await res.json();
+      setExperimentId(data.experiment_id);
+      setExperimentPolling(true);
+    } catch (err: any) {
+      setGenError(err.message || "Failed to start experiment");
+    } finally {
+      setGenLoading(false);
+    }
+  };
 
 
   return (
@@ -421,6 +479,8 @@ export default function Home() {
                 loadCatalog={loadCatalog}
                 expandedProfile={expandedProfile}
                 setExpandedProfile={setExpandedProfile}
+                startExperiment={startExperiment}
+                experimentState={experimentState}
               />
             ) : null}
           </div>
@@ -438,10 +498,13 @@ function ProfileGeneratorView({
   trainSource, setTrainSource, trainK, setTrainK, trainProfiles,
   catalog, catalogList, selectedCatalogVersion, setSelectedCatalogVersion, loadCatalog,
   expandedProfile, setExpandedProfile,
+  startExperiment, experimentState,
 }: any) {
+  const [showAllIncentives, setShowAllIncentives] = useState(false);
   const tabs: { key: string; label: string }[] = [
     { key: "train", label: "Training" },
     { key: "catalog", label: "Catalog" },
+    { key: "experiment", label: "Experiment" },
   ];
 
   return (
@@ -703,12 +766,229 @@ function ProfileGeneratorView({
               )}
             </div>
           )}
+
+          {/* Experiment Panel */}
+          {generatorTab === "experiment" && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-1">Portfolio Optimization Experiment</h3>
+                  <p className="text-sm text-slate-500">Run background LLM optimizations to match targeted incentives to profiles.</p>
+                </div>
+                {catalogList.length > 0 && (
+                  <select
+                    value={selectedCatalogVersion}
+                    onChange={(e) => { setSelectedCatalogVersion(e.target.value); loadCatalog(e.target.value); }}
+                    className="rounded-md border px-3 py-2 text-sm bg-white"
+                  >
+                    {catalogList.map((c: any) => (
+                      <option key={c.version} value={c.version}>
+                        {c.version} ({c.profile_count} profiles)
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {!catalog ? (
+                <div className="text-sm text-slate-500 py-8 text-center">
+                  No catalog loaded. Train profiles first or select a saved catalog.
+                </div>
+              ) : (
+                <div className="space-y-6 border-t border-slate-200 pt-6">
+
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-slate-500">
+                      Evaluates each profile in <span className="font-mono text-xs">{catalog.version}</span> against multiple incentives to maximize Portfolio LTV.
+                    </div>
+                    <button
+                      onClick={startExperiment}
+                      disabled={genLoading || (experimentState && experimentState.status === "running")}
+                      className="rounded-md bg-black px-6 py-2.5 text-sm font-semibold text-white hover:opacity-80 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {(genLoading || (experimentState && experimentState.status === "running")) && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {experimentState?.status === "running" ? "Optimizing..." : "Run LTV Optimization"}
+                    </button>
+                  </div>
+
+                  {experimentState && (
+                    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-6">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <h4 className="font-semibold text-slate-900">Optimization Progress</h4>
+                          <span className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                            experimentState.status === "running" ? "bg-blue-100 text-blue-700" :
+                              experimentState.status === "completed" ? "bg-green-100 text-green-700" :
+                                "bg-red-100 text-red-700"
+                          )}>
+                            {experimentState.status}
+                          </span>
+                        </div>
+                        <div className="text-sm font-mono text-slate-500">{experimentState.progress}%</div>
+                      </div>
+
+                      <div className="w-full bg-slate-100 rounded-full h-2 mb-4 overflow-hidden">
+                        <div
+                          className={cn("h-full rounded-full transition-all duration-500", experimentState.status === 'failed' ? 'bg-red-500' : 'bg-blue-600')}
+                          style={{ width: `${experimentState.progress}%` }}
+                        />
+                      </div>
+
+                      <div className="text-sm text-slate-600 mb-6">
+                        {experimentState.current_step}
+                      </div>
+
+                      {experimentState.status === "failed" && (
+                        <div className="rounded-md bg-red-50 p-4 text-red-700 text-sm mt-4">
+                          Error: {experimentState.error}
+                        </div>
+                      )}
+
+                      {experimentState.results && experimentState.results.length > 0 && (
+                        <div className="mt-8 space-y-6">
+                          {/* Results table — most important, shown first */}
+                          <div>
+                            <h4 className="font-semibold text-slate-900 mb-4">Optimal Incentive Programs</h4>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="border-b border-slate-200 text-left text-slate-500">
+                                    <th className="py-2 pr-4 font-medium">Profile</th>
+                                    <th className="py-2 pr-4 font-medium">Assigned Incentive(s)</th>
+                                    <th className="py-2 pr-4 font-medium text-right">Orig LTV</th>
+                                    <th className="py-2 pr-4 font-medium text-right">Gross LTV</th>
+                                    <th className="py-2 pr-4 font-medium text-right">Cost</th>
+                                    <th className="py-2 pr-4 font-medium text-right">Net LTV</th>
+                                    <th className="py-2 pr-4 font-medium text-right">Net Lift</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {experimentState.results.map((r: any) => (
+                                    <tr key={r.profile_id} className="border-b border-slate-100">
+                                      <td className="py-3 pr-4 font-semibold text-slate-900">{r.profile_id}</td>
+                                      <td className="py-3 pr-4 text-slate-700">
+                                        <div className="flex flex-wrap gap-1">
+                                          {(r.selected_incentives || []).map((inc: string, idx: number) => (
+                                            <span key={idx} className="inline-flex bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-xs font-semibold">
+                                              {inc}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </td>
+                                      <td className="py-3 pr-4 text-right font-mono text-slate-500">
+                                        {`$${Math.round(r.original_portfolio_ltv).toLocaleString('en-US')}`}
+                                      </td>
+                                      <td className="py-3 pr-4 text-right font-mono text-slate-700">
+                                        {`$${Math.round(r.new_gross_portfolio_ltv).toLocaleString('en-US')}`}
+                                      </td>
+                                      <td className="py-3 pr-4 text-right font-mono text-red-600">
+                                        {`-$${Math.round(r.portfolio_cost).toLocaleString('en-US')}`}
+                                      </td>
+                                      <td className="py-3 pr-4 text-right font-mono text-green-600 font-semibold">
+                                        {`$${Math.round(r.new_net_portfolio_ltv).toLocaleString('en-US')}`}
+                                      </td>
+                                      <td className="py-3 pr-4 text-right font-mono text-blue-600 font-semibold">
+                                        {`+$${Math.round(r.lift).toLocaleString('en-US')}`}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                  <tr className="bg-slate-50/50">
+                                    <td className="py-4 pr-4" colSpan={2}>
+                                      <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Maximized Total Portfolio</span>
+                                    </td>
+                                    <td className="py-4 pr-4 text-right font-mono text-slate-900 font-bold border-t border-slate-200">
+                                      {(() => {
+                                        const totalOrig = experimentState.results.reduce((sum: number, r: any) => sum + (r.original_portfolio_ltv || 0), 0);
+                                        return `$${Math.round(totalOrig).toLocaleString('en-US')}`;
+                                      })()}
+                                    </td>
+                                    <td className="py-4 pr-4 text-right font-mono text-slate-700 border-t border-slate-200">
+                                      {(() => {
+                                        const totalGross = experimentState.results.reduce((sum: number, r: any) => sum + (r.new_gross_portfolio_ltv || 0), 0);
+                                        return `$${Math.round(totalGross).toLocaleString('en-US')}`;
+                                      })()}
+                                    </td>
+                                    <td className="py-4 pr-4 text-right font-mono text-red-600 border-t border-slate-200">
+                                      {(() => {
+                                        const totalCost = experimentState.results.reduce((sum: number, r: any) => sum + (r.portfolio_cost || 0), 0);
+                                        return `-$${Math.round(totalCost).toLocaleString('en-US')}`;
+                                      })()}
+                                    </td>
+                                    <td className="py-4 pr-4 text-right font-mono text-green-600 font-bold border-t border-slate-200">
+                                      {(() => {
+                                        const totalNet = experimentState.results.reduce((sum: number, r: any) => sum + (r.new_net_portfolio_ltv || 0), 0);
+                                        return `$${Math.round(totalNet).toLocaleString('en-US')}`;
+                                      })()}
+                                    </td>
+                                    <td className="py-4 pr-4 text-right font-mono text-blue-600 font-bold border-t border-slate-200">
+                                      {(() => {
+                                        const totalLift = experimentState.results.reduce((sum: number, r: any) => sum + (r.lift || 0), 0);
+                                        return `+$${Math.round(totalLift).toLocaleString('en-US')}`;
+                                      })()}
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+
+                          {/* Methodology note — compact */}
+                          <div className="text-xs text-slate-400 px-1">
+                            Convergence-based optimization: each profile iterated until no improvement for {experimentState.iterations_per_profile} consecutive rounds. Only net-positive incentives retained (marginal LTV &gt; effective cost).
+                          </div>
+
+                          {/* Available Incentives — collapsed by default, at the bottom */}
+                          {(() => {
+                            const allIncentives = experimentState.available_incentives || [];
+                            const PREVIEW_COUNT = 5;
+                            const visibleIncentives = showAllIncentives ? allIncentives : allIncentives.slice(0, PREVIEW_COUNT);
+                            const hiddenCount = allIncentives.length - PREVIEW_COUNT;
+                            return (
+                              <div className="rounded-lg border border-slate-200 bg-slate-50/50">
+                                <button
+                                  onClick={() => setShowAllIncentives(!showAllIncentives)}
+                                  className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-100/50 transition-colors rounded-lg"
+                                >
+                                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                    Available Incentives ({allIncentives.length})
+                                  </span>
+                                  <ChevronDown className={cn("h-4 w-4 text-slate-400 transition-transform", showAllIncentives && "rotate-180")} />
+                                </button>
+                                <div className="px-4 pb-3">
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {visibleIncentives.map((inc: any, idx: number) => (
+                                      <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-slate-200 text-[11px] text-slate-500 font-medium">
+                                        {inc.name}
+                                        <span className="text-slate-300">${Math.round(inc.estimated_annual_cost_per_user * (inc.redemption_rate || 1))}</span>
+                                      </span>
+                                    ))}
+                                    {!showAllIncentives && hiddenCount > 0 && (
+                                      <span
+                                        onClick={() => setShowAllIncentives(true)}
+                                        className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-[11px] text-slate-400 font-medium cursor-pointer hover:bg-slate-200 transition-colors"
+                                      >
+                                        +{hiddenCount} more
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
-
 // ========================================================
 // Helpers
 // ========================================================
