@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from models.features import UserFeatures
+from models.profile_catalog import ProfileAssignment
 from utils.toon import encode
 
 
@@ -143,3 +144,17 @@ def format_cards_for_llm(cards: list[dict]) -> str:
         result += "\ncard_details:\n" + "\n".join(details)
 
     return result
+
+
+def format_profiles_for_llm(assignment: ProfileAssignment) -> str:
+    """Convert a ProfileAssignment into a TOON-encoded string for LLM consumption."""
+    if not assignment:
+        return "assigned_profile: unknown"
+
+    # Present the single assigned profile
+    flat_assignment = {
+        "profile_id": assignment.profile_id,
+        "confidence": assignment.confidence,
+    }
+    
+    return encode(flat_assignment, "assigned_profile")

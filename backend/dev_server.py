@@ -24,7 +24,8 @@ from analysis.preprocessor import (
 )
 from cards.catalog import CardCatalog
 from config import CARDS_PATH, TEST_USERS_DIR
-from utils.formatters import format_features_for_llm, format_cards_for_llm
+from utils.formatters import format_features_for_llm, format_cards_for_llm, format_profiles_for_llm
+from profile_generator.versioning import get_latest_catalog
 from prompts.profiling import SYSTEM_PROMPT as PROF_SYSTEM, build_user_prompt as prof_prompt
 from prompts.card_matching import SYSTEM_PROMPT as CARD_SYSTEM, build_user_prompt as card_prompt
 from analysis.profiler import _parse_toon_profile
@@ -72,59 +73,48 @@ def _llm_call(system: str, user_content: str) -> str:
     return response.text.strip()
 
 
-def _analyze_pipeline(features, catalog, region=None):
+def _analyze_pipeline(features, assignment, catalog, region=None):
     """Run profile + match cards sequentially with Gemini."""
     features_toon = format_features_for_llm(features)
 
-    # Step 1: Profile
-    raw_prof = _llm_call(PROF_SYSTEM, prof_prompt(features_toon))
-    raw_prof = _strip_fences(raw_prof)
-    profile = _parse_toon_profile(raw_prof, features.customer_id)
+    profiles_toon = format_profiles_for_llm(assignment) if assignment else "assigned_profile: unknown"
 
-    # Step 2: Match cards
     region_val = region or features.country
     cards = catalog.get_cards_for_region(region_val)
     if not cards:
         cards = catalog.cards
     cards_toon = format_cards_for_llm(cards)
 
-    raw_card = _llm_call(CARD_SYSTEM, card_prompt(
-        profile.raw_toon, features_toon, cards_toon
-    ))
-    raw_card = _strip_fences(raw_card)
-    rec = _parse_toon_recommendations(raw_card, features.customer_id)
+    raw_resp = _llm_call(PROF_SYSTEM, prof_prompt(features_toon, profiles_toon, cards_toon))
+    raw_resp = _strip_fences(raw_resp)
+    
+    profile = _parse_toon_profile(raw_resp, features.customer_id)
+    rec = _parse_toon_recommendations(raw_resp, features.customer_id)
 
     return profile, rec
 
 
-def _analyze_streaming(features, catalog, region=None):
+def _analyze_streaming(features, assignment, catalog, region=None):
     """Run profile + match with streaming progress via SSE."""
     features_toon = format_features_for_llm(features)
+    
+    profiles_toon = format_profiles_for_llm(assignment) if assignment else "assigned_profile: unknown"
+
+    region_val = region or features.country
+    cards = catalog.get_cards_for_region(region_val)
+    if not cards:
+        cards = catalog.cards
+    cards_toon = format_cards_for_llm(cards)
 
     def generate():
-        # Step 1: Profile
-        yield f"data: {json.dumps({'step': 'profiling', 'message': 'Profiling with Gemini...'})}\n\n"
+        yield f"data: {json.dumps({'step': 'profiling', 'message': 'Profiling and matching with Gemini...'})}\n\n"
 
-        raw_prof = _llm_call(PROF_SYSTEM, prof_prompt(features_toon))
-        raw_prof = _strip_fences(raw_prof)
-        profile = _parse_toon_profile(raw_prof, features.customer_id)
+        raw_resp = _llm_call(PROF_SYSTEM, prof_prompt(features_toon, profiles_toon, cards_toon))
+        raw_resp = _strip_fences(raw_resp)
+        
+        profile = _parse_toon_profile(raw_resp, features.customer_id)
+        rec = _parse_toon_recommendations(raw_resp, features.customer_id)
 
-        yield f"data: {json.dumps({'step': 'matching', 'message': 'Matching credit cards...'})}\n\n"
-
-        # Step 2: Match cards
-        region_val = region or features.country
-        cards = catalog.get_cards_for_region(region_val)
-        if not cards:
-            cards = catalog.cards
-        cards_toon = format_cards_for_llm(cards)
-
-        raw_card = _llm_call(CARD_SYSTEM, card_prompt(
-            profile.raw_toon, features_toon, cards_toon
-        ))
-        raw_card = _strip_fences(raw_card)
-        rec = _parse_toon_recommendations(raw_card, features.customer_id)
-
-        # Final result
         yield f"data: {json.dumps({'step': 'done', 'result': {'profile': profile.model_dump(), 'features': features.model_dump(mode='json'), 'card_recommendations': rec.model_dump()}})}\n\n"
 
     return generate
@@ -154,12 +144,17 @@ def analyze_test_user():
         user_txns = load_test_user(user_id)
         clean = clean_transactions(user_txns)
         features = compute_features(clean)
+        
+        profile_catalog = get_latest_catalog()
+        assignment = None
+        if profile_catalog:
+            assignment = _assign_profile(clean, profile_catalog, eval_date=profile_catalog.dataset_max_date)
 
         if stream:
-            gen = _analyze_streaming(features, _catalog)
+            gen = _analyze_streaming(features, assignment, _catalog)
             return Response(gen(), content_type="text/event-stream")
 
-        profile, rec = _analyze_pipeline(features, _catalog)
+        profile, rec = _analyze_pipeline(features, assignment, _catalog)
         return jsonify({
             "profile": profile.model_dump(),
             "features": features.model_dump(mode="json"),
@@ -184,12 +179,17 @@ def analyze_transactions():
         user_txns = parse_json_transactions(transactions, customer_id)
         clean = clean_transactions(user_txns)
         features = compute_features(clean)
+        
+        profile_catalog = get_latest_catalog()
+        assignment = None
+        if profile_catalog:
+            assignment = _assign_profile(clean, profile_catalog, eval_date=profile_catalog.dataset_max_date)
 
         if stream:
-            gen = _analyze_streaming(features, _catalog, region)
+            gen = _analyze_streaming(features, assignment, _catalog, region)
             return Response(gen(), content_type="text/event-stream")
 
-        profile, rec = _analyze_pipeline(features, _catalog, region)
+        profile, rec = _analyze_pipeline(features, assignment, _catalog, region)
         return jsonify({
             "profile": profile.model_dump(),
             "features": features.model_dump(mode="json"),

@@ -10,11 +10,12 @@ from firebase_functions import https_fn, options
 from firebase_admin import initialize_app, credentials
 import firebase_admin
 
-from analysis.card_matcher import match_cards_sync
 from analysis.feature_engine import compute_features
+from profile_generator.assigner import assign_profile
 from analysis.preprocessor import clean_transactions, parse_csv_transactions, parse_json_transactions, load_test_user
 from analysis.profiler import profile_user_sync
 from cards.catalog import CardCatalog
+from profile_generator.versioning import get_latest_catalog
 from config import CARDS_PATH, FIREBASE_CREDENTIALS_PATH, GEMINI_API_KEY, MODEL, TEST_USERS_DIR
 from utils.formatters import format_features_for_llm
 
@@ -70,8 +71,12 @@ def analyze_transactions(req: https_fn.Request) -> https_fn.Response:
         clean = clean_transactions(user_txns)
         features = compute_features(clean)
         
-        user_profile = profile_user_sync(features)
-        card_rec = match_cards_sync(user_profile, features, _catalog, region)
+        catalog = get_latest_catalog()
+        assignment = None
+        if catalog:
+            assignment = assign_profile(user_txns, catalog, eval_date=catalog.dataset_max_date)
+            
+        user_profile, card_rec = profile_user_sync(features, assignment, _catalog, region)
 
         return https_fn.Response(
             json.dumps({
@@ -226,8 +231,14 @@ def analyze_test_user(req: https_fn.Request) -> https_fn.Response:
         user_txns = load_test_user(user_id)
         clean = clean_transactions(user_txns)
         features = compute_features(clean)
-        user_profile = profile_user_sync(features)
-        card_rec = match_cards_sync(user_profile, features, _catalog)
+        
+        catalog = get_latest_catalog()
+        assignment = None
+        if catalog:
+            assignment = assign_profile(user_txns, catalog, eval_date=catalog.dataset_max_date)
+            
+        user_profile, card_rec = profile_user_sync(features, assignment, _catalog)
+        
         return https_fn.Response(
             json.dumps({
                 "profile": user_profile.model_dump(),

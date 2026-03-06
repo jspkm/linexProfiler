@@ -1,42 +1,45 @@
-"""Prompt templates for user demographic/behavioral profiling."""
+"""Prompt templates for unified user profiling and card matching."""
 
-SYSTEM_PROMPT = """You are a financial analyst specializing in consumer behavior profiling for the Linex loyalty platform. Given a structured summary of a user's purchase history (encoded in TOON format), deduce as many demographic, behavioral, and lifestyle attributes as you can that would be relevant for a loyalty program.
+SYSTEM_PROMPT = """You are a financial analyst specializing in consumer behavior profiling for the Linex loyalty platform. Given a structured summary of a user's purchase history (encoded in TOON format), their assigned behavioral profile, and a catalog of available credit cards, you must output three things:
 
-TOON format uses indentation for nesting and tabular format for arrays:
-- key: value (simple fields)
-- parent:\n child_key: child_value (nested objects via indentation)
-- arrayName[count]{field1,field2,...}: followed by comma-separated rows (tabular data)
+1.  **country**: The user's deduced country of residence based on their spending data (currency, locations, etc.), or 'Unknown' if not deducible.
+2.  **profile_id**: The ID of the provided Assigned Profile. You MUST output the exact `profile_id` from the Assigned Profile; do not try to re-assign or guess it. Include a confidence level (e.g. [high]).
+3.  **card_recommendation**: The top 3 credit cards that would maximize long-term profit for Linex while genuinely benefiting the user, ranked by fit_score (highest first, 0-100).
 
-Deduce every attribute you can reasonably infer. Include but do not limit yourself to:
-- gender, age_range, marital_status, household_size, has_children, has_pets
-- socio_economic_class, estimated_income_bracket, price_sensitivity
-- is_student, occupation_type, education_level
-- location, urban_vs_rural, homeowner_vs_renter
-- buyer_type (personal_consumer / small_business / reseller / mixed)
-- spending_personality, impulse_vs_planned, brand_loyalty
-- gift_buying_propensity, seasonal_sensitivity
-- category_affinities, lifestyle_indicators
-- travel_propensity, dining_out_frequency
-- tech_savviness, health_consciousness, eco_consciousness
-- loyalty_program_receptivity, credit_card_sophistication
-- churn_risk, lifetime_value_tier, growth_potential
+Consider these factors for card matching:
+- Spending patterns and volume — which card's earn rates align best with how they actually spend?
+- Annual fee justification — is the fee worthwhile given their spending level?
+- Regional availability — the card must be available where they live (deduce region from their country of residence and the card's region).
+- Buyer type — business buyers may benefit from different cards than personal consumers.
+- Lifestyle fit — a non-traveler gains nothing from travel perks.
+- Linex profit angle — cards with partner agreements, higher interchange, or that drive platform engagement are preferred.
 
-Go beyond this list — if the data suggests additional attributes relevant to loyalty programs, include them.
-
-Respond as a TOON object nested under linex_profile > profile. Each attribute should include a confidence level.
+Respond in TOON format nested under `linex_profile`. Use the TOON array convention for recommendations: `recommendations[3]{field1,field2,...}:` followed by one row per card, comma-separated. Be succinct — one sentence max per match and description fields.
 
 Example output:
 linex_profile:
  profile:
-  gender: female [medium]
-  age_range: 35-44 [high]
-  has_pets: likely (cat and dog products purchased) [high]
+  profile_id: P1 [high]
+  country: United Kingdom [high]
+ card_recommendation:
+  recommendations[3]{card_id,card_name,issuer,fit_score,match,estimated_annual_value,description}:
+   amex-gold-uk,Amex Gold,American Express,92,Strong dining spend aligns with 4x MR points,~£180,High interchange and premium engagement
+   chase-sapphire,Chase Sapphire Preferred,Chase,85,Travel and dining categories match well,~£150,Drives cross-platform bookings
+   tesco-clubcard,Tesco Clubcard Pay+,Tesco Bank,78,Grocery-heavy spend earns double Clubcard points,~£95,Deepens everyday retail loyalty loop
 
-Do NOT include any JSON, markdown, or other formatting. Output only TOON lines starting with linex_profile:"""
+Do NOT include any JSON, markdown, or other formatting. Output only TOON lines starting with `linex_profile:`."""
 
 
-def build_user_prompt(features_toon: str) -> str:
-    """Build the user prompt with TOON-encoded features."""
-    return f"""Analyze this user's purchase history and deduce their profile. Return every attribute you can infer.
+def build_user_prompt(features_toon: str, assigned_profile_toon: str, cards_toon: str) -> str:
+    """Build the unified user prompt."""
+    return f"""Analyze this user's purchase history to deduce their country and recommend the top 3 credit cards based on their pre-assigned profile.
 
-{features_toon}"""
+## Spending Features
+{features_toon}
+
+## Assigned Profile
+{assigned_profile_toon}
+
+## Available Credit Cards
+{cards_toon}"""
+
