@@ -29,3 +29,8 @@ EXCLUDED_STOCK_CODES = frozenset({
     "PADS", "TEST001", "TEST002", "AMAZONFEE", "CRUK",
 })
 MAX_REASONABLE_QUANTITY = 5000
+
+# Profile Generator
+PROFILE_CATALOG_DIR = DATA_DIR / "profile_catalogs"
+DEFAULT_K = 10
+DEFAULT_TIME_WINDOW = "Q"  # quarterly

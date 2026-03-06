@@ -11,6 +11,7 @@ Usage:
 import json
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
+from datetime import datetime
 
 # Ensure env vars loaded before imports
 from config import GEMINI_API_KEY, MODEL
@@ -267,6 +268,247 @@ def ask_qu():
         return jsonify({"error": str(e)}), 500
 
 
+# ---------- Profile Generator ----------
+import csv
+import io
+from config import TEST_USERS_DIR, DEFAULT_K, DEFAULT_TIME_WINDOW
+from analysis.preprocessor import parse_csv_transactions, clean_transactions as clean_txns_fn
+from profile_generator.feature_derivation import derive_batch_features
+from profile_generator.trainer import train_profiles as _train_profiles
+from profile_generator.assigner import assign_profile as _assign_profile
+from profile_generator.transitions import build_transition_matrix as _build_tmatrix
+from profile_generator.simulator import run_simulation as _run_simulation
+from profile_generator.versioning import (
+    save_catalog, load_catalog, list_catalogs, get_latest_catalog, fork_catalog,
+)
+from models.transaction import UserTransactions
+
+
+def _load_all_test_users() -> dict[str, UserTransactions]:
+    """Load all test users from data/test-users/."""
+    users: dict[str, UserTransactions] = {}
+    if not TEST_USERS_DIR.exists():
+        return users
+    for f in sorted(TEST_USERS_DIR.iterdir()):
+        if f.name.startswith("test-user-") and f.name.endswith(".csv"):
+            uid = f.name.replace("test-user-", "").replace(".csv", "")
+            csv_text = f.read_text(encoding="utf-8")
+            user_txns = parse_csv_transactions(csv_text, customer_id=uid)
+            users[uid] = user_txns
+    return users
+
+
+def _load_retail_users(limit: int = 0) -> dict[str, UserTransactions]:
+    """Load users from retail.csv, grouped by Customer ID."""
+    from config import DATA_DIR
+    retail_path = DATA_DIR / "retail.csv"
+    if not retail_path.exists():
+        return {}
+
+    users_txns: dict[str, list] = {}
+    with open(retail_path, "r", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            cid = row.get("Customer ID", "").strip()
+            if not cid or cid == "":
+                continue
+            # Clean float CIDs like "13085.0"
+            try:
+                cid = str(int(float(cid)))
+            except (ValueError, TypeError):
+                pass
+            if cid not in users_txns:
+                users_txns[cid] = []
+            users_txns[cid].append(row)
+
+    if limit > 0:
+        keys = list(users_txns.keys())[:limit]
+        users_txns = {k: users_txns[k] for k in keys}
+
+    result: dict[str, UserTransactions] = {}
+    for cid, rows in users_txns.items():
+        csv_rows = []
+        for r in rows:
+            csv_rows.append(r)
+        # Build CSV text and parse
+        if csv_rows:
+            fieldnames = list(csv_rows[0].keys())
+            buf = io.StringIO()
+            writer = csv.DictWriter(buf, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(csv_rows)
+            result[cid] = parse_csv_transactions(buf.getvalue(), customer_id=cid)
+
+    return result
+
+
+@app.route("/linexonewhitelabeler/us-central1/train_profiles", methods=["POST"])
+def train_profiles_endpoint():
+    try:
+        data = request.get_json(silent=True) or {}
+        source = data.get("source", "test-users")
+        k = data.get("k", DEFAULT_K)
+        limit = data.get("limit", 0)
+
+        # Load transactions
+        if source == "retail":
+            users = _load_retail_users(limit=limit)
+        else:
+            users = _load_all_test_users()
+
+        if not users:
+            return jsonify({"error": f"No users found for source '{source}'"}), 400
+
+        # Derive features
+        feature_df = derive_batch_features(users)
+
+        if len(feature_df) < 2:
+            return jsonify({"error": "Need at least 2 users to train profiles"}), 400
+
+        global_max: datetime | None = None
+        for user_txns in users.values():
+            for t in user_txns.transactions:
+                if global_max is None or t.date > global_max:
+                    global_max = t.date
+
+        # Train
+        catalog = _train_profiles(feature_df, k=k, source=source, dataset_max_date=global_max)
+
+        # Save
+        save_catalog(catalog)
+
+        return jsonify(catalog.model_dump(mode="json"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/linexonewhitelabeler/us-central1/assign_profile", methods=["POST"])
+def assign_profile_endpoint():
+    try:
+        data = request.get_json(silent=True) or {}
+        user_id = data.get("user_id", "")
+        catalog_version = data.get("catalog_version", "")
+
+        if not user_id:
+            return jsonify({"error": "Missing user_id"}), 400
+
+        # Load catalog
+        if catalog_version:
+            catalog = load_catalog(catalog_version)
+        else:
+            catalog = get_latest_catalog()
+        if not catalog:
+            return jsonify({"error": "No profile catalog found"}), 404
+
+        # Load user transactions
+        user_txns = load_test_user(user_id)
+        clean = clean_txns_fn(user_txns)
+
+        # Assign
+        assignment = _assign_profile(clean, catalog, eval_date=catalog.dataset_max_date)
+        return jsonify(assignment.model_dump(mode="json"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/linexonewhitelabeler/us-central1/profile_catalog", methods=["GET"])
+@app.route("/linexonewhitelabeler/us-central1/profile_catalog/<version>", methods=["GET"])
+def get_profile_catalog_endpoint(version=None):
+    try:
+        if version:
+            catalog = load_catalog(version)
+        else:
+            catalog = get_latest_catalog()
+
+        if not catalog:
+            return jsonify({"error": "No catalog found"}), 404
+
+        return jsonify(catalog.model_dump(mode="json"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/linexonewhitelabeler/us-central1/list_profile_catalogs", methods=["GET"])
+def list_profile_catalogs_endpoint():
+    try:
+        catalogs = list_catalogs()
+        return jsonify({"catalogs": catalogs})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/linexonewhitelabeler/us-central1/build_transition_matrix", methods=["POST"])
+def build_transition_matrix_endpoint():
+    try:
+        data = request.get_json(silent=True) or {}
+        catalog_version = data.get("catalog_version", "")
+        time_window = data.get("time_window", DEFAULT_TIME_WINDOW)
+        source = data.get("source", "test-users")
+
+        # Load catalog
+        if catalog_version:
+            catalog = load_catalog(catalog_version)
+        else:
+            catalog = get_latest_catalog()
+        if not catalog:
+            return jsonify({"error": "No profile catalog found"}), 404
+
+        # Load transactions
+        if source == "retail":
+            users = _load_retail_users()
+        else:
+            users = _load_all_test_users()
+
+        if not users:
+            return jsonify({"error": "No users found"}), 400
+
+        # Build matrix
+        tm = _build_tmatrix(users, catalog, time_window)
+        return jsonify(tm.model_dump(mode="json"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/linexonewhitelabeler/us-central1/run_simulation", methods=["POST"])
+def run_simulation_endpoint():
+    try:
+        data = request.get_json(silent=True) or {}
+        initial_population = data.get("initial_population", [])
+        matrix_data = data.get("transition_matrix", {})
+        periods = data.get("periods", 5)
+        modified_matrix = data.get("modified_matrix")
+
+        if not initial_population or not matrix_data:
+            return jsonify({"error": "Missing initial_population or transition_matrix"}), 400
+
+        from models.profile_catalog import TransitionMatrix
+        tm = TransitionMatrix.model_validate(matrix_data)
+
+        result = _run_simulation(initial_population, tm, periods, modified_matrix)
+        return jsonify(result.model_dump(mode="json"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/linexonewhitelabeler/us-central1/fork_catalog", methods=["POST"])
+def fork_catalog_endpoint():
+    try:
+        data = request.get_json(silent=True) or {}
+        source_version = data.get("source_version", "")
+        modifications = data.get("modifications")
+
+        if not source_version:
+            return jsonify({"error": "Missing source_version"}), 400
+
+        forked = fork_catalog(source_version, modifications)
+        if not forked:
+            return jsonify({"error": f"Catalog version '{source_version}' not found"}), 404
+
+        return jsonify(forked.model_dump(mode="json"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     print(f"Starting local dev server on http://127.0.0.1:5050 (model: {MODEL})")
     print("Functions available:")
@@ -275,4 +517,13 @@ if __name__ == "__main__":
     print("  - POST /linexonewhitelabeler/us-central1/analyze_transactions")
     print("  - POST /linexonewhitelabeler/us-central1/ask_test_user")
     print("  - POST /linexonewhitelabeler/us-central1/ask_qu")
+    print("  Profile Generator:")
+    print("  - POST /linexonewhitelabeler/us-central1/train_profiles")
+    print("  - POST /linexonewhitelabeler/us-central1/assign_profile")
+    print("  - GET  /linexonewhitelabeler/us-central1/profile_catalog")
+    print("  - GET  /linexonewhitelabeler/us-central1/list_profile_catalogs")
+    print("  - POST /linexonewhitelabeler/us-central1/build_transition_matrix")
+    print("  - POST /linexonewhitelabeler/us-central1/run_simulation")
+    print("  - POST /linexonewhitelabeler/us-central1/fork_catalog")
     app.run(host="127.0.0.1", port=5050, debug=False)
+

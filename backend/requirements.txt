@@ -5,3 +5,6 @@ pydantic>=2.0
 firebase-admin>=6.2.0
 firebase-functions>=0.1.0
 functions-framework>=3.0.0
+scikit-learn>=1.4
+numpy>=1.26
+scipy>=1.12

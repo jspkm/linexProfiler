@@ -1,0 +1,482 @@
+{
+  "version": "v_239e81c2f5b6_b06d3cc7e76a",
+  "created_at": "2026-03-05T05:48:44.115299Z",
+  "k": 10,
+  "feature_names": [
+    "cadence_mean",
+    "cadence_std",
+    "total_spend",
+    "avg_order_value",
+    "max_order_value",
+    "recency_days",
+    "cancellation_count",
+    "cancellation_rate",
+    "unique_products",
+    "product_diversity",
+    "active_months",
+    "temporal_spread",
+    "frequency_per_month",
+    "transaction_count"
+  ],
+  "scaling_params": [
+    {
+      "feature_name": "cadence_mean",
+      "transform": "log1p",
+      "p5": 0.0,
+      "p95": 2.8774789823754277
+    },
+    {
+      "feature_name": "cadence_std",
+      "transform": "log1p",
+      "p5": 0.0,
+      "p95": 4.1391425981069485
+    },
+    {
+      "feature_name": "total_spend",
+      "transform": "log1p",
+      "p5": 4.723841632870295,
+      "p95": 9.15087883099599
+    },
+    {
+      "feature_name": "avg_order_value",
+      "transform": "log1p",
+      "p5": 1.691758376169773,
+      "p95": 4.38962163093839
+    },
+    {
+      "feature_name": "max_order_value",
+      "transform": "log1p",
+      "p5": 2.928523523860541,
+      "p95": 5.80746368620836
+    },
+    {
+      "feature_name": "recency_days",
+      "transform": "none",
+      "p5": 0.0,
+      "p95": 1.0
+    },
+    {
+      "feature_name": "cancellation_count",
+      "transform": "log1p",
+      "p5": 0.0,
+      "p95": 2.70805020110221
+    },
+    {
+      "feature_name": "cancellation_rate",
+      "transform": "log1p",
+      "p5": 0.0,
+      "p95": 0.11778303565638346
+    },
+    {
+      "feature_name": "unique_products",
+      "transform": "log1p",
+      "p5": 1.6094379124341003,
+      "p95": 5.677779444292918
+    },
+    {
+      "feature_name": "product_diversity",
+      "transform": "none",
+      "p5": 0.4368207390359289,
+      "p95": 1.0
+    },
+    {
+      "feature_name": "active_months",
+      "transform": "none",
+      "p5": 1.0,
+      "p95": 15.0
+    },
+    {
+      "feature_name": "temporal_spread",
+      "transform": "none",
+      "p5": 0.16216216216216214,
+      "p95": 1.0
+    },
+    {
+      "feature_name": "frequency_per_month",
+      "transform": "log1p",
+      "p5": 0.8677558968712019,
+      "p95": 4.07753744390572
+    },
+    {
+      "feature_name": "transaction_count",
+      "transform": "log1p",
+      "p5": 1.791759469228055,
+      "p95": 6.222576268071369
+    }
+  ],
+  "profiles": [
+    {
+      "profile_id": "P0",
+      "centroid": {
+        "cadence_mean": 0.2680557776411215,
+        "cadence_std": 0.4680551200024567,
+        "total_spend": 0.49774787404754667,
+        "avg_order_value": 0.44056893345218945,
+        "max_order_value": 0.4230919033019744,
+        "recency_days": 0.0,
+        "cancellation_count": 0.11470106829986644,
+        "cancellation_rate": 0.06489832882873439,
+        "unique_products": 0.5736828599177382,
+        "product_diversity": 0.7139751536574239,
+        "active_months": 0.1276223776223776,
+        "temporal_spread": 0.9059448322589208,
+        "frequency_per_month": 0.7502308276730448,
+        "transaction_count": 0.5283075374506992
+      },
+      "dispersion": {
+        "cadence_mean": 0.1417732687565092,
+        "cadence_std": 0.1525820059591746,
+        "total_spend": 0.16048547326328313,
+        "avg_order_value": 0.2097164084694645,
+        "max_order_value": 0.23316221534972756,
+        "recency_days": 0.0,
+        "cancellation_count": 0.18854297551945828,
+        "cancellation_rate": 0.11742949472494668,
+        "unique_products": 0.1723296048562878,
+        "product_diversity": 0.22724405320891425,
+        "active_months": 0.09607261181757157,
+        "temporal_spread": 0.15104952015166928,
+        "frequency_per_month": 0.17708347178518388,
+        "transaction_count": 0.16956765200130108
+      },
+      "population_share": 0.09753191489361702,
+      "description": "Mid spender, frequent buyer, active, diverse explorer"
+    },
+    {
+      "profile_id": "P1",
+      "centroid": {
+        "cadence_mean": 0.3128391700985784,
+        "cadence_std": 0.5311723515469308,
+        "total_spend": 0.916639627571222,
+        "avg_order_value": 0.5010037979538318,
+        "max_order_value": 0.6985689412362039,
+        "recency_days": 0.0,
+        "cancellation_count": 0.7774914353188662,
+        "cancellation_rate": 0.26095786432670787,
+        "unique_products": 0.8894223996370286,
+        "product_diversity": 0.19950319009878364,
+        "active_months": 0.8294179894179896,
+        "temporal_spread": 0.671849116761582,
+        "frequency_per_month": 0.7004986285948774,
+        "transaction_count": 0.9165127613145774
+      },
+      "dispersion": {
+        "cadence_mean": 0.13282187199612028,
+        "cadence_std": 0.11834273433193926,
+        "total_spend": 0.09268337284960756,
+        "avg_order_value": 0.2405379254231722,
+        "max_order_value": 0.23156787889693706,
+        "recency_days": 0.0,
+        "cancellation_count": 0.23992879020533556,
+        "cancellation_rate": 0.23320063480036668,
+        "unique_products": 0.12752581099304264,
+        "product_diversity": 0.18900311220683774,
+        "active_months": 0.20566991704773369,
+        "temporal_spread": 0.21882980512940434,
+        "frequency_per_month": 0.18141420930396482,
+        "transaction_count": 0.09349124120718731
+      },
+      "population_share": 0.1148936170212766,
+      "description": "High spender, frequent buyer, active"
+    },
+    {
+      "profile_id": "P2",
+      "centroid": {
+        "cadence_mean": 0.014109922996009938,
+        "cadence_std": 0.039180661864875455,
+        "total_spend": 0.23539695835177743,
+        "avg_order_value": 0.2211907903754368,
+        "max_order_value": 0.1680439671716224,
+        "recency_days": 0.0,
+        "cancellation_count": 0.01857271619979403,
+        "cancellation_rate": 0.01690156982305982,
+        "unique_products": 0.4860767993552085,
+        "product_diversity": 0.8925569891367228,
+        "active_months": 0.006395120031483598,
+        "temporal_spread": 0.9997855644291955,
+        "frequency_per_month": 0.8386525062286267,
+        "transaction_count": 0.4201978474406699
+      },
+      "dispersion": {
+        "cadence_mean": 0.04208759821074628,
+        "cadence_std": 0.1029538843219458,
+        "total_spend": 0.13971437655064536,
+        "avg_order_value": 0.17403612056998652,
+        "max_order_value": 0.15009442382919705,
+        "recency_days": 0.0,
+        "cancellation_count": 0.07684864153782742,
+        "cancellation_rate": 0.07224243479236048,
+        "unique_products": 0.12731273989435193,
+        "product_diversity": 0.161133683547627,
+        "active_months": 0.0209339018725356,
+        "temporal_spread": 0.005773854446465766,
+        "frequency_per_month": 0.1220613774631723,
+        "transaction_count": 0.12538687602008863
+      },
+      "population_share": 0.12357446808510639,
+      "description": "Low spender, frequent buyer, active, diverse explorer"
+    },
+    {
+      "profile_id": "P3",
+      "centroid": {
+        "cadence_mean": 0.013652705027808576,
+        "cadence_std": 0.01392018917331711,
+        "total_spend": 0.1388401025649767,
+        "avg_order_value": 0.5211210115906942,
+        "max_order_value": 0.2945616963104465,
+        "recency_days": 0.0,
+        "cancellation_count": 0.001644974452505471,
+        "cancellation_rate": 0.002920223983817305,
+        "unique_products": 0.17533342892711412,
+        "product_diversity": 0.971349318304031,
+        "active_months": 0.0011935365405802423,
+        "temporal_spread": 0.9999999999999998,
+        "frequency_per_month": 0.4454972758976018,
+        "transaction_count": 0.1286739948624041
+      },
+      "dispersion": {
+        "cadence_mean": 0.08306282189956239,
+        "cadence_std": 0.08008270996169886,
+        "total_spend": 0.12782100291979892,
+        "avg_order_value": 0.18305983825270628,
+        "max_order_value": 0.2413657172933003,
+        "recency_days": 0.0,
+        "cancellation_count": 0.020466396504886134,
+        "cancellation_rate": 0.03652529071308494,
+        "unique_products": 0.11521511775294171,
+        "product_diversity": 0.12690364105675644,
+        "active_months": 0.009161557273984919,
+        "temporal_spread": 0.0,
+        "frequency_per_month": 0.1665835835109522,
+        "transaction_count": 0.09675783424444499
+      },
+      "population_share": 0.13225531914893618,
+      "description": "Low spender, regular buyer, active, diverse explorer"
+    },
+    {
+      "profile_id": "P4",
+      "centroid": {
+        "cadence_mean": 0.4270232078537476,
+        "cadence_std": 0.702560604625492,
+        "total_spend": 0.6738146579014084,
+        "avg_order_value": 0.32606916498888233,
+        "max_order_value": 0.4678051970355621,
+        "recency_days": 0.0,
+        "cancellation_count": 0.20053505917882775,
+        "cancellation_rate": 0.053507563913961706,
+        "unique_products": 0.8089329611819036,
+        "product_diversity": 0.51023854246082,
+        "active_months": 0.37820900030202353,
+        "temporal_spread": 0.29882806101900056,
+        "frequency_per_month": 0.553080057072183,
+        "transaction_count": 0.778974240378201
+      },
+      "dispersion": {
+        "cadence_mean": 0.12218648027874857,
+        "cadence_std": 0.08621446393565778,
+        "total_spend": 0.13566367212865313,
+        "avg_order_value": 0.20772307547154398,
+        "max_order_value": 0.225180701014633,
+        "recency_days": 0.0,
+        "cancellation_count": 0.2318535635819187,
+        "cancellation_rate": 0.07483962260352109,
+        "unique_products": 0.11739219255718364,
+        "product_diversity": 0.21324020394418738,
+        "active_months": 0.19114895661247294,
+        "temporal_spread": 0.16430712125174057,
+        "frequency_per_month": 0.15095777802232352,
+        "transaction_count": 0.11394933102925746
+      },
+      "population_share": 0.1610212765957447,
+      "description": "Mid spender, regular buyer, active"
+    },
+    {
+      "profile_id": "P5",
+      "centroid": {
+        "cadence_mean": 0.8927941294698138,
+        "cadence_std": 0.8795085194583978,
+        "total_spend": 0.5318278603283191,
+        "avg_order_value": 0.8244117293245767,
+        "max_order_value": 0.7887453584166351,
+        "recency_days": 0.0,
+        "cancellation_count": 0.11464541395663426,
+        "cancellation_rate": 0.1782372709247373,
+        "unique_products": 0.2757220340440709,
+        "product_diversity": 0.472166888307214,
+        "active_months": 0.2542643923240938,
+        "temporal_spread": 0.3047174730815611,
+        "frequency_per_month": 0.11115908340886022,
+        "transaction_count": 0.29314782081658575
+      },
+      "dispersion": {
+        "cadence_mean": 0.13164022434511008,
+        "cadence_std": 0.1684360267193938,
+        "total_spend": 0.21809500146028887,
+        "avg_order_value": 0.16044075546617662,
+        "max_order_value": 0.1980193488536781,
+        "recency_days": 0.0,
+        "cancellation_count": 0.16287882059605402,
+        "cancellation_rate": 0.30036124918047913,
+        "unique_products": 0.19703813555468902,
+        "product_diversity": 0.31765754158564075,
+        "active_months": 0.18787313243784523,
+        "temporal_spread": 0.27837969783488764,
+        "frequency_per_month": 0.11551042129361758,
+        "transaction_count": 0.1860767559370416
+      },
+      "population_share": 0.06842553191489362,
+      "description": "Mid spender, occasional buyer, active"
+    },
+    {
+      "profile_id": "P6",
+      "centroid": {
+        "cadence_mean": 0.2659889164175636,
+        "cadence_std": 0.3580345707324205,
+        "total_spend": 0.28522994601359464,
+        "avg_order_value": 0.49243311370393517,
+        "max_order_value": 0.311278795430197,
+        "recency_days": 0.0,
+        "cancellation_count": 0.5178317147015221,
+        "cancellation_rate": 0.8287011689695881,
+        "unique_products": 0.31742841502904884,
+        "product_diversity": 0.6214475143028897,
+        "active_months": 0.06916996047430832,
+        "temporal_spread": 0.97659396310671,
+        "frequency_per_month": 0.5841826621710187,
+        "transaction_count": 0.30253624971384885
+      },
+      "dispersion": {
+        "cadence_mean": 0.22022544654400011,
+        "cadence_std": 0.21861891159344823,
+        "total_spend": 0.1952823304597315,
+        "avg_order_value": 0.20821641220444356,
+        "max_order_value": 0.24349423330342768,
+        "recency_days": 0.0,
+        "cancellation_count": 0.21012033036425648,
+        "cancellation_rate": 0.20150582871649111,
+        "unique_products": 0.18536987066877883,
+        "product_diversity": 0.2821599560687733,
+        "active_months": 0.07429958981588088,
+        "temporal_spread": 0.07767845136912159,
+        "frequency_per_month": 0.21882628345366859,
+        "transaction_count": 0.17189902316848912
+      },
+      "population_share": 0.04306382978723404,
+      "description": "Low spender, regular buyer, active, return-heavy"
+    },
+    {
+      "profile_id": "P7",
+      "centroid": {
+        "cadence_mean": 0.7254221860581022,
+        "cadence_std": 0.8818448321330945,
+        "total_spend": 0.3927761067589199,
+        "avg_order_value": 0.3842403910236318,
+        "max_order_value": 0.3385401040864058,
+        "recency_days": 0.0,
+        "cancellation_count": 0.06884931961308052,
+        "cancellation_rate": 0.05260744414381627,
+        "unique_products": 0.5208213417569546,
+        "product_diversity": 0.8032946516707835,
+        "active_months": 0.14391534391534389,
+        "temporal_spread": 0.16097820790237766,
+        "frequency_per_month": 0.25941404653469524,
+        "transaction_count": 0.46417023833703747
+      },
+      "dispersion": {
+        "cadence_mean": 0.16285352326609118,
+        "cadence_std": 0.0920681825419461,
+        "total_spend": 0.13996101423242135,
+        "avg_order_value": 0.16760849059154512,
+        "max_order_value": 0.19559930207895201,
+        "recency_days": 0.0,
+        "cancellation_count": 0.13527038769078586,
+        "cancellation_rate": 0.11833825202184291,
+        "unique_products": 0.14844683267402142,
+        "product_diversity": 0.1594467561976763,
+        "active_months": 0.08674713417586721,
+        "temporal_spread": 0.1687834779635116,
+        "frequency_per_month": 0.1410744261368565,
+        "transaction_count": 0.14049784786330202
+      },
+      "population_share": 0.16085106382978723,
+      "description": "Low spender, occasional buyer, active, diverse explorer"
+    },
+    {
+      "profile_id": "P8",
+      "centroid": {
+        "cadence_mean": 0.6518130513766767,
+        "cadence_std": 0.8084559918214378,
+        "total_spend": 0.590131344713937,
+        "avg_order_value": 0.5518441376580405,
+        "max_order_value": 0.5487686806658205,
+        "recency_days": 0.0,
+        "cancellation_count": 0.7037688969344431,
+        "cancellation_rate": 0.6591310183340168,
+        "unique_products": 0.5775064241120308,
+        "product_diversity": 0.5113265588067542,
+        "active_months": 0.325497287522604,
+        "temporal_spread": 0.2932349744817812,
+        "frequency_per_month": 0.32325577560660296,
+        "transaction_count": 0.5669733798664837
+      },
+      "dispersion": {
+        "cadence_mean": 0.16353733234726106,
+        "cadence_std": 0.10284008660973092,
+        "total_spend": 0.18052761385998772,
+        "avg_order_value": 0.178716956129967,
+        "max_order_value": 0.24098567703458354,
+        "recency_days": 0.0,
+        "cancellation_count": 0.1852192256641913,
+        "cancellation_rate": 0.26962790398746883,
+        "unique_products": 0.16910268530085446,
+        "product_diversity": 0.24768217291996045,
+        "active_months": 0.1856772470053966,
+        "temporal_spread": 0.18074102145448107,
+        "frequency_per_month": 0.14847491590252193,
+        "transaction_count": 0.15104803603565076
+      },
+      "population_share": 0.08068085106382979,
+      "description": "Mid spender, occasional buyer, active, return-heavy"
+    },
+    {
+      "profile_id": "P9",
+      "centroid": {
+        "cadence_mean": 0.019230769230769273,
+        "cadence_std": -1.1102230246251565e-16,
+        "total_spend": 0.08858991765227103,
+        "avg_order_value": 0.7463871656278411,
+        "max_order_value": 0.4814570576682221,
+        "recency_days": 0.0,
+        "cancellation_count": 0.027072483393345864,
+        "cancellation_rate": 0.10576923076923077,
+        "unique_products": 2.220446049250313e-16,
+        "product_diversity": 1.0,
+        "active_months": 0.001373626373626341,
+        "temporal_spread": -2.220446049250313e-16,
+        "frequency_per_month": 0.0,
+        "transaction_count": 0.0
+      },
+      "dispersion": {
+        "cadence_mean": 0.1373351620873625,
+        "cadence_std": 0.0,
+        "total_spend": 0.1589736821638608,
+        "avg_order_value": 0.36205278722188416,
+        "max_order_value": 0.3603345687082981,
+        "recency_days": 0.0,
+        "cancellation_count": 0.07871785070093285,
+        "cancellation_rate": 0.30754203060998997,
+        "unique_products": 0.0,
+        "product_diversity": 0.0,
+        "active_months": 0.009809654434811608,
+        "temporal_spread": 0.0,
+        "frequency_per_month": 0.0,
+        "transaction_count": 0.0
+      },
+      "population_share": 0.01770212765957447,
+      "description": "Low spender, occasional buyer, active, diverse explorer"
+    }
+  ],
+  "training_dataset_hash": "b06d3cc7e76a",
+  "config_hash": "239e81c2f5b6",
+  "source": "test-users"
+}
