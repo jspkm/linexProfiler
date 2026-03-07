@@ -31,7 +31,7 @@ EXCLUDED_STOCK_CODES = frozenset({
 MAX_REASONABLE_QUANTITY = 5000
 
 # Profile Generator
-PROFILE_CATALOG_DIR = DATA_DIR / "profile_catalogs"
-EXPERIMENT_DIR = DATA_DIR / "experiments"
+PROFILE_CATALOG_DIR = DATA_DIR / "profile_catalogs"  # DEPRECATED: used only by migration script
+EXPERIMENT_DIR = DATA_DIR / "experiments"  # DEPRECATED: used only by migration script
 DEFAULT_K = 10
 DEFAULT_TIME_WINDOW = "Q"  # quarterly

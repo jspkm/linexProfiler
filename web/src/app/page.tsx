@@ -61,6 +61,10 @@ export default function Home() {
   const [selectedSavedExperimentId, setSelectedSavedExperimentId] = useState<string | null>(null);
   const [showExperimentProgress, setShowExperimentProgress] = useState(false);
 
+  // Incentive Set State
+  const [incentiveSets, setIncentiveSets] = useState<any[]>([]);
+  const [selectedIncentiveSetVersion, setSelectedIncentiveSetVersion] = useState("");
+
   // Load test user IDs on mount
   useEffect(() => {
     fetchTestUsers();
@@ -216,8 +220,11 @@ export default function Home() {
     if (activeView === "generator" && (generatorTab === "catalog" || generatorTab === "experiment")) {
       loadCatalog(selectedCatalogVersion || undefined);
     }
-    if (activeView === "generator" && generatorTab === "experiment" && selectedCatalogVersion) {
-      fetchSavedExperiments(selectedCatalogVersion);
+    if (activeView === "generator" && generatorTab === "experiment") {
+      fetchIncentiveSets();
+      if (selectedCatalogVersion) {
+        fetchSavedExperiments(selectedCatalogVersion);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView, generatorTab]);
@@ -266,7 +273,10 @@ export default function Home() {
       const res = await fetch(`${CLOUD_FUNCTION_URL}/start_experiment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ catalog_version: selectedCatalogVersion }),
+        body: JSON.stringify({
+          catalog_version: selectedCatalogVersion,
+          incentive_set_version: selectedIncentiveSetVersion || undefined,
+        }),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -333,6 +343,24 @@ export default function Home() {
           setSelectedSavedExperimentId(null);
           setExperimentState(null);
           setExperimentId(null);
+        }
+      }
+    } catch { /* silent */ }
+  };
+
+  const fetchIncentiveSets = async () => {
+    try {
+      const res = await fetch(`${CLOUD_FUNCTION_URL}/list_incentive_sets`);
+      if (res.ok) {
+        const data = await res.json();
+        const sets = data.incentive_sets || [];
+        setIncentiveSets(sets);
+        // Auto-select the default, or the first one
+        const defaultSet = sets.find((s: any) => s.is_default);
+        if (defaultSet) {
+          setSelectedIncentiveSetVersion(defaultSet.version);
+        } else if (sets.length > 0 && !selectedIncentiveSetVersion) {
+          setSelectedIncentiveSetVersion(sets[0].version);
         }
       }
     } catch { /* silent */ }
@@ -600,6 +628,9 @@ export default function Home() {
                 selectedSavedExperimentId={selectedSavedExperimentId}
                 loadSavedExperiment={loadSavedExperiment}
                 fetchSavedExperiments={fetchSavedExperiments}
+                incentiveSets={incentiveSets}
+                selectedIncentiveSetVersion={selectedIncentiveSetVersion}
+                setSelectedIncentiveSetVersion={setSelectedIncentiveSetVersion}
               />
             ) : null}
           </div>
@@ -620,6 +651,7 @@ function ProfileGeneratorView({
   startExperiment, stopExperiment, deleteExperiment, deleteCatalog,
   experimentState, showExperimentProgress,
   savedExperiments, selectedSavedExperimentId, loadSavedExperiment, fetchSavedExperiments,
+  incentiveSets, selectedIncentiveSetVersion, setSelectedIncentiveSetVersion,
 }: any) {
   const [showAllIncentives, setShowAllIncentives] = useState(false);
   const tabs: { key: string; label: string }[] = [
@@ -922,6 +954,23 @@ function ProfileGeneratorView({
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
+                </div>
+              )}
+
+              {incentiveSets.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-slate-500 shrink-0">Incentive set:</label>
+                  <select
+                    value={selectedIncentiveSetVersion}
+                    onChange={(e) => setSelectedIncentiveSetVersion(e.target.value)}
+                    className="rounded-md border px-3 py-2 text-sm bg-white"
+                  >
+                    {incentiveSets.map((s: any) => (
+                      <option key={s.version} value={s.version}>
+                        {s.name || s.version} ({s.incentive_count} incentives){s.is_default ? " *" : ""}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
 

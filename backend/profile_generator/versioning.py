@@ -1,7 +1,7 @@
 """Profile catalog versioning and persistence.
 
-Catalogs are stored as immutable JSON files in the profile_catalogs directory.
-Supports listing, loading, and forking.
+Catalogs are stored as immutable documents in the Firestore `profile_catalogs`
+collection. Supports listing, loading, forking, and deletion.
 """
 
 from __future__ import annotations
@@ -9,33 +9,24 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 
-from config import PROFILE_CATALOG_DIR
 from models.profile_catalog import ProfileCatalog
-
-
-def _ensure_dir() -> Path:
-    """Ensure the catalog directory exists."""
-    PROFILE_CATALOG_DIR.mkdir(parents=True, exist_ok=True)
-    return PROFILE_CATALOG_DIR
+from profile_generator.firestore_client import (
+    fs_save_catalog,
+    fs_load_catalog,
+    fs_list_catalogs,
+    fs_delete_catalog,
+)
 
 
 def save_catalog(catalog: ProfileCatalog) -> str:
-    """Save a ProfileCatalog to disk. Returns the file path."""
-    catalog_dir = _ensure_dir()
-    path = catalog_dir / f"{catalog.version}.json"
-    path.write_text(catalog.model_dump_json(indent=2), encoding="utf-8")
-    return str(path)
+    """Save a ProfileCatalog to Firestore. Returns the version string."""
+    return fs_save_catalog(catalog)
 
 
 def load_catalog(version: str) -> ProfileCatalog | None:
     """Load a ProfileCatalog by version ID. Returns None if not found."""
-    path = PROFILE_CATALOG_DIR / f"{version}.json"
-    if not path.exists():
-        return None
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return ProfileCatalog.model_validate(data)
+    return fs_load_catalog(version)
 
 
 def list_catalogs() -> list[dict]:
@@ -43,52 +34,20 @@ def list_catalogs() -> list[dict]:
 
     Returns list of {version, created_at, k, source, profile_count}.
     """
-    catalog_dir = _ensure_dir()
-    results = []
-    for f in catalog_dir.glob("*.json"):
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-            results.append({
-                "version": data.get("version", f.stem),
-                "created_at": data.get("created_at", ""),
-                "k": data.get("k", 0),
-                "source": data.get("source", ""),
-                "profile_count": len(data.get("profiles", [])),
-            })
-        except (json.JSONDecodeError, KeyError):
-            continue
-    # Sort by created_at descending (newest first), fall back to version string
-    results.sort(key=lambda c: c["created_at"] or "", reverse=True)
-    return results
+    return fs_list_catalogs()
 
 
 def get_latest_catalog() -> ProfileCatalog | None:
     """Load the most recently saved catalog."""
-    catalog_dir = _ensure_dir()
-    files = list(catalog_dir.glob("*.json"))
-    if not files:
-        return None
-    # Sort by created_at from JSON content (newest first)
-    catalogs = []
-    for f in files:
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-            catalogs.append((data.get("created_at", ""), data))
-        except (json.JSONDecodeError, KeyError):
-            continue
+    catalogs = fs_list_catalogs()
     if not catalogs:
         return None
-    catalogs.sort(key=lambda c: c[0] or "", reverse=True)
-    return ProfileCatalog.model_validate(catalogs[0][1])
+    return fs_load_catalog(catalogs[0]["version"])
 
 
 def delete_catalog(version: str) -> bool:
     """Delete a catalog by version. Returns True if deleted, False if not found."""
-    path = PROFILE_CATALOG_DIR / f"{version}.json"
-    if not path.exists():
-        return False
-    path.unlink()
-    return True
+    return fs_delete_catalog(version)
 
 
 def fork_catalog(
@@ -101,7 +60,7 @@ def fork_catalog(
 
     Args:
         source_version: version ID of the catalog to clone
-        modifications: optional dict of profile_id → {field: new_value} to apply
+        modifications: optional dict of profile_id -> {field: new_value} to apply
 
     Returns:
         New ProfileCatalog with a unique version, or None if source not found.

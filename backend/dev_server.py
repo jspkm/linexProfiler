@@ -286,6 +286,13 @@ from profile_generator.experiment import (
     cancel_experiment, save_experiment, delete_experiment,
     list_experiments, load_experiment,
 )
+from profile_generator.incentive_manager import load_or_seed_default, generate_version
+from profile_generator.firestore_client import (
+    fs_save_incentive_set, fs_load_incentive_set,
+    fs_list_incentive_sets, fs_get_default_incentive_set,
+    fs_set_default_incentive_set, fs_delete_incentive_set,
+)
+from models.incentive_set import Incentive, IncentiveSet
 from models.transaction import UserTransactions
 
 
@@ -474,10 +481,13 @@ def start_experiment_endpoint():
         if not catalog_version:
             return jsonify({"error": "Missing catalog_version"}), 400
 
+        incentive_set_version = data.get("incentive_set_version") or None
+
         experiment_id = start_experiment(
             catalog_version,
             max_iterations=int(max_iterations),
             patience=int(patience),
+            incentive_set_version=incentive_set_version,
         )
         return jsonify({"experiment_id": experiment_id})
     except Exception as e:
@@ -553,6 +563,87 @@ def delete_catalog_endpoint(version):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# ---------- Incentive Sets ----------
+
+@app.route("/linexonewhitelabeler/us-central1/list_incentive_sets", methods=["GET"])
+def list_incentive_sets_endpoint():
+    try:
+        sets = fs_list_incentive_sets()
+        return jsonify({"incentive_sets": sets})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/linexonewhitelabeler/us-central1/incentive_set", methods=["GET"])
+@app.route("/linexonewhitelabeler/us-central1/incentive_set/<version>", methods=["GET"])
+def get_incentive_set_endpoint(version=None):
+    try:
+        if version:
+            inc_set = fs_load_incentive_set(version)
+        else:
+            inc_set = fs_get_default_incentive_set()
+            if not inc_set:
+                # Auto-seed the default on first access
+                inc_set = load_or_seed_default()
+        if not inc_set:
+            return jsonify({"error": "Incentive set not found"}), 404
+        return jsonify(inc_set.model_dump(mode="json"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/linexonewhitelabeler/us-central1/create_incentive_set", methods=["POST"])
+def create_incentive_set_endpoint():
+    try:
+        data = request.get_json(silent=True) or {}
+        name = data.get("name", "")
+        description = data.get("description", "")
+        raw_incentives = data.get("incentives", [])
+        set_as_default = data.get("set_as_default", False)
+
+        if not raw_incentives:
+            return jsonify({"error": "No incentives provided"}), 400
+
+        version = generate_version(raw_incentives)
+        inc_set = IncentiveSet(
+            version=version,
+            name=name,
+            description=description,
+            is_default=set_as_default,
+            incentive_count=len(raw_incentives),
+            incentives=[Incentive(**inc) for inc in raw_incentives],
+        )
+
+        if set_as_default:
+            # Clear old default first, then save
+            fs_set_default_incentive_set(version)  # will be no-op if doc doesn't exist yet
+        fs_save_incentive_set(inc_set)
+        if set_as_default:
+            fs_set_default_incentive_set(version)
+
+        return jsonify(inc_set.model_dump(mode="json"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/linexonewhitelabeler/us-central1/set_default_incentive_set/<version>", methods=["POST"])
+def set_default_incentive_set_endpoint(version):
+    try:
+        ok = fs_set_default_incentive_set(version)
+        if not ok:
+            return jsonify({"error": "Incentive set not found"}), 404
+        return jsonify({"default": True, "version": version})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/linexonewhitelabeler/us-central1/delete_incentive_set/<version>", methods=["DELETE"])
+def delete_incentive_set_endpoint(version):
+    try:
+        ok = fs_delete_incentive_set(version)
+        if not ok:
+            return jsonify({"error": "Incentive set not found"}), 404
+        return jsonify({"deleted": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     print(f"Starting local dev server on http://127.0.0.1:5050 (model: {MODEL})")
     print("Functions available:")
@@ -567,11 +658,19 @@ if __name__ == "__main__":
     print("  - GET  /linexonewhitelabeler/us-central1/profile_catalog")
     print("  - GET  /linexonewhitelabeler/us-central1/list_profile_catalogs")
     print("  - POST /linexonewhitelabeler/us-central1/fork_catalog")
+    print("  Experiments:")
     print("  - POST /linexonewhitelabeler/us-central1/start_experiment")
     print("  - GET  /linexonewhitelabeler/us-central1/experiment_status/<id>")
     print("  - POST /linexonewhitelabeler/us-central1/cancel_experiment/<id>")
     print("  - POST /linexonewhitelabeler/us-central1/save_experiment/<id>")
     print("  - DEL  /linexonewhitelabeler/us-central1/delete_experiment/<id>")
     print("  - DEL  /linexonewhitelabeler/us-central1/delete_catalog/<version>")
+    print("  Incentive Sets:")
+    print("  - GET  /linexonewhitelabeler/us-central1/list_incentive_sets")
+    print("  - GET  /linexonewhitelabeler/us-central1/incentive_set")
+    print("  - GET  /linexonewhitelabeler/us-central1/incentive_set/<version>")
+    print("  - POST /linexonewhitelabeler/us-central1/create_incentive_set")
+    print("  - POST /linexonewhitelabeler/us-central1/set_default_incentive_set/<version>")
+    print("  - DEL  /linexonewhitelabeler/us-central1/delete_incentive_set/<version>")
     app.run(host="127.0.0.1", port=5050, debug=False)
 
