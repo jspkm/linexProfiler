@@ -53,17 +53,25 @@ class CardCatalog:
     """Load and query the credit card knowledge base."""
 
     def __init__(self, cards_path: str | None = None):
-        self.cards = self._load_cards(cards_path)
+        self._cards_path = cards_path
+        self._cards: list[dict] | None = None  # lazy — loaded on first access
+
+    @property
+    def cards(self) -> list[dict]:
+        if self._cards is None:
+            self._cards = self._load_cards(self._cards_path)
+        return self._cards
 
     @staticmethod
     def _load_cards(path: str | None) -> list[dict]:
+        import os
         # Try Firebase first
         if not firebase_admin._apps:
-            if FIREBASE_CREDENTIALS_PATH:
+            if FIREBASE_CREDENTIALS_PATH and os.path.exists(FIREBASE_CREDENTIALS_PATH):
                 cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
                 firebase_admin.initialize_app(cred)
             else:
-                firebase_admin.initialize_app()
+                firebase_admin.initialize_app()  # Uses Application Default Credentials
         
         db = firestore.client()
         docs = db.collection('known_cards').stream()

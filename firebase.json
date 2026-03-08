@@ -19,7 +19,10 @@
             "**/__pycache__/**",
             ".gemini",
             ".gemini/**",
-            "*.pyc"
+            "*.pyc",
+            "data",
+            "data/**",
+            "linexonewhitelabeler-firebase-adminsdk-*.json"
         ]
     },
     "hosting": {
@@ -50,6 +53,82 @@
             {
                 "source": "/api/ask_test_user",
                 "function": "ask_test_user"
+            },
+            {
+                "source": "/api/train_profiles",
+                "function": "train_profiles"
+            },
+            {
+                "source": "/api/list_profile_catalogs",
+                "function": "list_profile_catalogs"
+            },
+            {
+                "source": "/api/profile_catalog",
+                "function": "profile_catalog"
+            },
+            {
+                "source": "/api/profile_catalog/**",
+                "function": "profile_catalog"
+            },
+            {
+                "source": "/api/fork_catalog",
+                "function": "fork_catalog_fn"
+            },
+            {
+                "source": "/api/delete_catalog/**",
+                "function": "delete_catalog_fn"
+            },
+            {
+                "source": "/api/start_experiment",
+                "function": "start_experiment_fn"
+            },
+            {
+                "source": "/api/experiment_status/**",
+                "function": "experiment_status"
+            },
+            {
+                "source": "/api/list_experiments",
+                "function": "list_experiments_fn"
+            },
+            {
+                "source": "/api/load_experiment/**",
+                "function": "load_experiment_fn"
+            },
+            {
+                "source": "/api/cancel_experiment/**",
+                "function": "cancel_experiment_fn"
+            },
+            {
+                "source": "/api/save_experiment/**",
+                "function": "save_experiment_fn"
+            },
+            {
+                "source": "/api/delete_experiment/**",
+                "function": "delete_experiment_fn"
+            },
+            {
+                "source": "/api/list_incentive_sets",
+                "function": "list_incentive_sets"
+            },
+            {
+                "source": "/api/incentive_set",
+                "function": "incentive_set"
+            },
+            {
+                "source": "/api/incentive_set/**",
+                "function": "incentive_set"
+            },
+            {
+                "source": "/api/create_incentive_set",
+                "function": "create_incentive_set_fn"
+            },
+            {
+                "source": "/api/set_default_incentive_set/**",
+                "function": "set_default_incentive_set_fn"
+            },
+            {
+                "source": "/api/delete_incentive_set/**",
+                "function": "delete_incentive_set_fn"
             }
         ]
     }

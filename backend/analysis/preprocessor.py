@@ -128,9 +128,18 @@ def parse_json_transactions(
 
 
 def load_test_user(customer_id: str) -> UserTransactions:
-    """Load a test user's CSV from data/test-users/ (for development only)."""
-    from config import TEST_USERS_DIR
+    """Load a test user's CSV — tries Firestore first, falls back to disk."""
+    # Try Firestore (works in production where disk data is not available)
+    try:
+        from profile_generator.firestore_client import fs_load_test_user_csv
+        csv_text = fs_load_test_user_csv(customer_id)
+        if csv_text:
+            return parse_csv_transactions(csv_text, customer_id=customer_id)
+    except Exception:
+        pass
 
+    # Fall back to disk (local development)
+    from config import TEST_USERS_DIR
     path = TEST_USERS_DIR / f"test-user-{customer_id}.csv"
     csv_text = path.read_text(encoding="utf-8")
     return parse_csv_transactions(csv_text, customer_id=customer_id)

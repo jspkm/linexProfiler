@@ -16,13 +16,19 @@ from profile_generator.firestore_client import (
     fs_delete_experiment,
     fs_load_incentive_set,
 )
-from google import genai
-from google.genai import types
+_gemini = None
 
-try:
-    _gemini = genai.Client(api_key=GEMINI_API_KEY)
-except Exception:
-    _gemini = None
+
+def _get_gemini():
+    """Lazy-init Gemini client on first use (avoids cold-start overhead)."""
+    global _gemini
+    if _gemini is None:
+        try:
+            from google import genai
+            _gemini = genai.Client(api_key=GEMINI_API_KEY)
+        except Exception:
+            pass
+    return _gemini
 
 # Global in-memory state for experiments
 _experiments: Dict[str, "ExperimentState"] = {}
@@ -84,7 +90,8 @@ def evaluate_incentive_bundle(
 ) -> ProfileIncentiveEvaluation:
     """Ask LLM for optimal bundle with per-incentive marginal LTV, then
     programmatically keep only net-positive incentives."""
-    if not _gemini:
+    gemini = _get_gemini()
+    if not gemini:
         return ProfileIncentiveEvaluation(
             profile_id=profile.profile_id,
             selected_incentives=[],
@@ -134,7 +141,8 @@ Task:
 """
 
     try:
-        response = _gemini.models.generate_content(
+        from google.genai import types
+        response = gemini.models.generate_content(
             model=MODEL,
             contents=user_prompt,
             config=types.GenerateContentConfig(
@@ -216,6 +224,14 @@ def _enforce_baseline(
     )
 
 
+def _persist_state(state: "ExperimentState"):
+    """Save experiment state to Firestore (best-effort, swallow errors)."""
+    try:
+        fs_save_experiment(state)
+    except Exception:
+        pass  # Don't let Firestore errors crash the experiment
+
+
 def _run_experiment_thread(experiment_id: str, catalog_version: str,
                            max_iterations: int = 50,
                            patience: int = 3):
@@ -224,6 +240,10 @@ def _run_experiment_thread(experiment_id: str, catalog_version: str,
     For each profile, iterations continue until net_ltv has not improved
     for ``patience`` consecutive rounds, or ``max_iterations`` is hit
     (safety cap to avoid runaway costs).
+
+    State is persisted to Firestore after each profile so that polling
+    endpoints (which may hit different Cloud Function instances) can
+    read intermediate progress.
     """
     state = _experiments.get(experiment_id)
     if not state:
@@ -246,6 +266,7 @@ def _run_experiment_thread(experiment_id: str, catalog_version: str,
                 state.status = "cancelled"
                 state.current_step = "Experiment cancelled by user."
                 state.completed_at = datetime.utcnow()
+                _persist_state(state)
                 return
 
             best_eval = None
@@ -257,6 +278,7 @@ def _run_experiment_thread(experiment_id: str, catalog_version: str,
                     state.status = "cancelled"
                     state.current_step = "Experiment cancelled by user."
                     state.completed_at = datetime.utcnow()
+                    _persist_state(state)
                     return
                 iteration += 1
                 state.current_step = (
@@ -303,17 +325,21 @@ def _run_experiment_thread(experiment_id: str, catalog_version: str,
                 state.results.append(result)
 
             profiles_done += 1
+            # Persist after each profile so polling can see progress
+            _persist_state(state)
 
         state.status = "completed"
         state.progress = 100
         state.current_step = "Experiment completed."
         state.completed_at = datetime.utcnow()
+        _persist_state(state)
 
     except Exception as e:
         state.status = "failed"
         state.error = str(e)
         state.current_step = "Experiment failed."
         state.completed_at = datetime.utcnow()
+        _persist_state(state)
 
 def start_experiment(catalog_version: str, *,
                      max_iterations: int = 50,
@@ -342,6 +368,8 @@ def start_experiment(catalog_version: str, *,
         started_at=datetime.utcnow()
     )
     _experiments[experiment_id] = state
+    # Persist initial state so polling endpoints can find it immediately
+    _persist_state(state)
 
     thread = threading.Thread(
         target=_run_experiment_thread,
@@ -354,7 +382,11 @@ def start_experiment(catalog_version: str, *,
     return experiment_id
 
 def get_experiment_status(experiment_id: str) -> Optional[ExperimentState]:
-    return _experiments.get(experiment_id)
+    """Check in-memory first, then fall back to Firestore."""
+    state = _experiments.get(experiment_id)
+    if state:
+        return state
+    return fs_load_experiment(experiment_id)
 
 def cancel_experiment(experiment_id: str) -> bool:
     """Request cancellation of a running experiment."""
