@@ -704,8 +704,7 @@ function ProfileGeneratorView({
                     onChange={(e) => setTrainSource(e.target.value)}
                     className="rounded-md border px-3 py-2 text-sm bg-white w-full"
                   >
-                    <option value="test-users">Test Users (~5,942 users)</option>
-                    <option value="retail">Retail CSV (full dataset)</option>
+                    <option value="test-users">Test Users (20 users, Firestore)</option>
                   </select>
                 </div>
 

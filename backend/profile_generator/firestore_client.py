@@ -20,12 +20,13 @@ from models.incentive_set import IncentiveSet
 
 def _get_db():
     """Get Firestore client, initializing Firebase if needed."""
+    import os
     if not firebase_admin._apps:
-        if FIREBASE_CREDENTIALS_PATH:
+        if FIREBASE_CREDENTIALS_PATH and os.path.exists(FIREBASE_CREDENTIALS_PATH):
             cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
             firebase_admin.initialize_app(cred)
         else:
-            firebase_admin.initialize_app()
+            firebase_admin.initialize_app()  # Uses Application Default Credentials (Cloud Run)
     return firestore.client()
 
 
@@ -248,3 +249,52 @@ def fs_delete_incentive_set(version: str) -> bool:
         return False
     doc_ref.delete()
     return True
+
+
+# ---------- Test Users ----------
+
+TEST_USERS_COLLECTION = "test_users"
+
+
+def fs_save_test_user(customer_id: str, csv_text: str,
+                      country: str = "", transaction_count: int = 0) -> str:
+    """Save a test user's CSV data to Firestore. Returns customer_id."""
+    db = _get_db()
+    db.collection(TEST_USERS_COLLECTION).document(customer_id).set({
+        "customer_id": customer_id,
+        "country": country,
+        "transaction_count": transaction_count,
+        "csv_text": csv_text,
+    })
+    return customer_id
+
+
+def fs_list_test_user_ids() -> list[str]:
+    """Return sorted list of all test user customer IDs."""
+    db = _get_db()
+    docs = db.collection(TEST_USERS_COLLECTION).stream()
+    ids = [doc.id for doc in docs]
+    ids.sort()
+    return ids
+
+
+def fs_load_test_user_csv(customer_id: str) -> str | None:
+    """Load a test user's CSV text from Firestore. Returns None if not found."""
+    db = _get_db()
+    doc = db.collection(TEST_USERS_COLLECTION).document(customer_id).get()
+    if not doc.exists:
+        return None
+    return doc.to_dict().get("csv_text")
+
+
+def fs_load_all_test_user_csvs() -> dict[str, str]:
+    """Load all test user CSV texts from Firestore. Returns {customer_id: csv_text}."""
+    db = _get_db()
+    docs = db.collection(TEST_USERS_COLLECTION).stream()
+    result = {}
+    for doc in docs:
+        data = doc.to_dict()
+        csv_text = data.get("csv_text")
+        if csv_text:
+            result[doc.id] = csv_text
+    return result
