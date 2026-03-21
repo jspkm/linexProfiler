@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment, useRef } from "react";
 import Papa from "papaparse";
-import { Upload, FileText, Search, Activity, Loader2, Users, PanelLeft, Boxes, ChevronDown, ChevronRight, Square, Trash2, ArrowUp } from "lucide-react";
+import { Upload, FileText, Search, Activity, Loader2, Users, PanelLeft, Boxes, ChevronDown, ChevronRight, Square, Trash2, ArrowUp, MoveHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_LOCAL_API_BASE_URL = "http://127.0.0.1:5050/linexone-dev/us-central1";
@@ -29,6 +29,12 @@ export default function Home() {
   const [profilerTab, setProfilerTab] = useState<ProfilerTab>("test");
   const [generatorTab, setGeneratorTab] = useState<GeneratorTab>("learn");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [quChatDraft, setQuChatDraft] = useState("");
+  const [quChatMessages, setQuChatMessages] = useState<Array<{ id: string; text: string; submittedAt: string }>>([]);
+  const [typedWelcomeLine, setTypedWelcomeLine] = useState("");
+  const [splitRatio, setSplitRatio] = useState(50);
+  const [isResizingSplit, setIsResizingSplit] = useState(false);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(false);
 
   // Test Users State
   const [testUserIds, setTestUserIds] = useState<string[]>([]);
@@ -92,6 +98,7 @@ export default function Home() {
   const savedOptimizationsFetchSeqRef = useRef(0);
   const loadOptimizationFetchSeqRef = useRef(0);
   const optimizationCacheBootstrappedRef = useRef(false);
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
 
   if (!optimizationCacheBootstrappedRef.current && typeof window !== "undefined") {
     optimizationCacheBootstrappedRef.current = true;
@@ -137,6 +144,57 @@ export default function Home() {
   useEffect(() => {
     fetchTestUsers();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(min-width: 768px)");
+    const syncViewport = () => setIsDesktopViewport(media.matches);
+    syncViewport();
+    media.addEventListener("change", syncViewport);
+    return () => media.removeEventListener("change", syncViewport);
+  }, []);
+
+  useEffect(() => {
+    if (isDesktopViewport) return;
+    setIsResizingSplit(false);
+    setSplitRatio(50);
+  }, [isDesktopViewport]);
+
+  useEffect(() => {
+    if (!isResizingSplit || !isDesktopViewport) return;
+
+    const onMouseMove = (event: MouseEvent) => {
+      const container = splitContainerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const pct = ((event.clientX - rect.left) / rect.width) * 100;
+      const clamped = Math.min(75, Math.max(25, pct));
+      setSplitRatio(clamped);
+    };
+
+    const onMouseUp = () => setIsResizingSplit(false);
+
+    const previousUserSelect = document.body.style.userSelect;
+    const previousCursor = document.body.style.cursor;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+
+    return () => {
+      document.body.style.userSelect = previousUserSelect;
+      document.body.style.cursor = previousCursor;
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [isDesktopViewport, isResizingSplit]);
+
+  const startSplitResize = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDesktopViewport) return;
+    event.preventDefault();
+    setIsResizingSplit(true);
+  };
 
   const fetchTestUsers = async () => {
     setTestUsersLoading(true);
@@ -1043,63 +1101,122 @@ export default function Home() {
     }
   };
 
+  const hasLoginState = false;
+  const currentUserName = "Sharpe";
+  const welcomeBackLine = hasLoginState && currentUserName ? `Welcome back ${currentUserName}.` : "Welcome.";
+  const welcomePromptLine = `${welcomeBackLine} What shall we work on today?`;
+
+  useEffect(() => {
+    setTypedWelcomeLine("");
+    let index = 0;
+    const timer = window.setInterval(() => {
+      index += 1;
+      setTypedWelcomeLine(welcomePromptLine.slice(0, index));
+      if (index >= welcomePromptLine.length) {
+        window.clearInterval(timer);
+      }
+    }, 35);
+    return () => window.clearInterval(timer);
+  }, [welcomePromptLine]);
+
+  const formatChatTimestamp = (date: Date) => {
+    const stamp = date.toLocaleString("en-US", {
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    return stamp.replace(", ", ", ").replace(" AM", "AM").replace(" PM", "PM");
+  };
+  const submitQuChat = () => {
+    const next = quChatDraft.trim();
+    if (!next) return;
+    const now = new Date();
+    setQuChatMessages((prev) => [
+      ...prev,
+      { id: `${Date.now()}-${prev.length}`, text: next, submittedAt: formatChatTimestamp(now) },
+    ]);
+    setQuChatDraft("");
+  };
+  const handleQuChatKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    submitQuChat();
+  };
+  const handleQuChatSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    submitQuChat();
+  };
+
 
   return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
+    <div className="terminal-shell flex min-h-screen flex-col md:flex-row">
       {/* Sidebar */}
       <aside
         className={cn(
-          "border-r border-[#E5E7EB] bg-[#F9FAFB] py-6 flex flex-col shrink-0 transition-[width] duration-300 ease-in-out overflow-hidden",
-          isSidebarOpen ? "w-56 px-4" : "w-16 px-2 items-center"
+          "border-b md:border-b-0 md:border-r border-[#BFBFBF]/30 bg-[#080b0a]/90 py-3 md:py-6 w-full md:w-auto px-3 md:px-0 flex flex-col shrink-0 transition-[width] duration-300 ease-in-out overflow-hidden",
+          isSidebarOpen ? "md:w-56 md:px-4" : "md:w-16 md:px-2 md:items-center"
         )}
       >
-        <div className={cn("mb-8 flex items-center", isSidebarOpen ? "justify-between w-full pl-2" : "justify-center")}>
-          {isSidebarOpen && <h1 className="text-2xl font-bold tracking-tight text-black whitespace-nowrap">linex qu</h1>}
+        <div className={cn("mb-3 md:mb-8 flex items-center", isSidebarOpen ? "justify-between w-full pl-2" : "justify-center")}>
+          {isSidebarOpen && (
+            <div className="whitespace-nowrap">
+              <h1 className="text-sm font-semibold tracking-[0.08em] text-black">LINEX Terminal</h1>
+            </div>
+          )}
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className={cn("p-1.5 text-slate-500 hover:bg-slate-200 rounded-md shrink-0", isSidebarOpen ? "-mr-2" : "")}
+            className={cn("hidden md:inline-flex p-1.5 text-slate-500 hover:bg-slate-200 rounded-md shrink-0", isSidebarOpen ? "-mr-2" : "")}
             title={isSidebarOpen ? "Close sidebar" : "Open sidebar"}
           >
             <PanelLeft className="h-5 w-5" />
           </button>
         </div>
 
-        <nav className="space-y-1 w-full">
+        <nav className="grid grid-cols-2 gap-2 w-full md:grid-cols-1 md:gap-1">
           <button
             onClick={() => setActiveView("profiler")}
             className={cn(
-              "flex w-full items-center rounded-md py-2 text-sm font-medium transition-colors",
-              isSidebarOpen ? "px-3 gap-3 justify-start" : "px-0 justify-center",
+              "flex w-full items-center rounded-md py-2 text-sm font-medium transition-colors border border-transparent justify-center md:justify-start",
+              isSidebarOpen ? "px-3 gap-3" : "px-0 md:justify-center",
               activeView === "profiler"
-                ? "bg-slate-200 text-slate-900"
+                ? "bg-slate-200 text-slate-900 border-black"
                 : "text-slate-600 hover:bg-slate-100"
             )}
             title={!isSidebarOpen ? "User Profiler" : undefined}
           >
             <Activity className="h-5 w-5 shrink-0" />
-            {isSidebarOpen && <span className="whitespace-nowrap">User Profiler</span>}
+            {isSidebarOpen && <span className="whitespace-nowrap uppercase tracking-[0.08em] text-[11px]">User Profiler</span>}
           </button>
           <button
             onClick={() => setActiveView("generator")}
             className={cn(
-              "flex w-full items-center rounded-md py-2 text-sm font-medium transition-colors",
-              isSidebarOpen ? "px-3 gap-3 justify-start" : "px-0 justify-center",
+              "flex w-full items-center rounded-md py-2 text-sm font-medium transition-colors border border-transparent justify-center md:justify-start",
+              isSidebarOpen ? "px-3 gap-3" : "px-0 md:justify-center",
               activeView === "generator"
-                ? "bg-slate-200 text-slate-900"
+                ? "bg-slate-200 text-slate-900 border-black"
                 : "text-slate-600 hover:bg-slate-100"
             )}
             title={!isSidebarOpen ? "Profile Generator" : undefined}
           >
             <Boxes className="h-5 w-5 shrink-0" />
-            {isSidebarOpen && <span className="whitespace-nowrap">Profile Generator</span>}
+            {isSidebarOpen && <span className="whitespace-nowrap uppercase tracking-[0.08em] text-[11px]">Profile Generator</span>}
           </button>
         </nav>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out">
-        <div className="flex-1 p-8">
-          <div className="mx-auto max-w-6xl space-y-8">
+      <main className="flex-1 min-w-0 transition-all duration-300 ease-in-out">
+        <div
+          ref={splitContainerRef}
+          className="relative flex h-full min-h-screen overflow-hidden bg-[#070a09]"
+        >
+            <section
+              className="min-h-0 overflow-auto p-3 md:p-4"
+              style={{ width: isDesktopViewport ? `${splitRatio}%` : "100%" }}
+            >
+              <div className="mx-auto max-w-6xl space-y-6">
             {error && (
               <div className="rounded-md bg-red-50 p-4 text-red-700 border border-red-200">
                 {error}
@@ -1107,7 +1224,7 @@ export default function Home() {
             )}
 
             {activeView === "profiler" ? (
-              <div className="space-y-8">
+              <div className="space-y-6">
 
                 <div className="rounded-xl border border-[#E5E7EB] bg-white shadow-sm flex flex-col min-h-[260px]">
                   {/* Tabs Header */}
@@ -1189,8 +1306,8 @@ export default function Home() {
                     {/* Upload CSV Tab */}
                     {profilerTab === "upload" && (
                       <div className="flex-1 flex flex-col">
-                        <div className="flex items-center gap-6">
-                          <label className="flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed border-slate-300 py-4 hover:border-blue-500 hover:bg-slate-50 transition-colors w-1/2 shrink-0">
+                        <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:gap-6">
+                          <label className="flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed border-slate-300 py-4 hover:border-blue-500 hover:bg-slate-50 transition-colors w-full sm:w-1/2 shrink-0">
                             <div className="text-center">
                               <Upload className="mx-auto h-5 w-5 text-slate-400 mb-1" />
                               <span className="text-sm text-slate-600">
@@ -1206,7 +1323,7 @@ export default function Home() {
                           </label>
 
                           {file && (
-                            <div className="flex-1 text-sm font-semibold text-slate-700 truncate">
+                            <div className="flex-1 text-sm font-semibold text-slate-700 break-all sm:truncate">
                               {file.name}
                             </div>
                           )}
@@ -1302,7 +1419,86 @@ export default function Home() {
                 incentiveSetDetailLoading={incentiveSetDetailLoading}
               />
             ) : null}
-          </div>
+              </div>
+            </section>
+
+            {isDesktopViewport && (
+              <>
+                <aside className="min-h-0 flex-1 overflow-hidden bg-[#111820] p-3 md:p-4">
+                  <div className="flex h-full min-h-0 flex-col">
+                    <div className="flex min-h-0 flex-1 flex-col bg-transparent">
+                      <div className="min-h-0 flex-1 overflow-auto px-4 py-1 flex flex-col justify-end">
+                        {quChatMessages.length === 0 ? (
+                          <div className="mb-0.5 flex items-center gap-2.5">
+                            <img src="/linex-icon.svg" alt="QU" className="h-[14px] w-[14px] shrink-0" />
+                            <h2 className="text-small leading-tight text-slate-900">
+                              {typedWelcomeLine}
+                            </h2>
+                          </div>
+
+                        ) : (
+                          <div className="space-y-3">
+                            {quChatMessages.map((message) => (
+                              <div key={message.id} className="ml-auto flex max-w-[85%] flex-col items-end">
+                                <div className="w-fit rounded-md border border-[#5f6670] bg-[#0d1218] px-3 py-2 text-right">
+                                  <p className="text-sm text-[#2f9a67] break-words">{message.text}</p>
+                                </div>
+                                <p className="mt-1 whitespace-nowrap text-right text-[10px] text-[#6f7782]">{message.submittedAt}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="shrink-0 px-4 py-3">
+                        <form className="relative" onSubmit={handleQuChatSubmit}>
+                          <span className="pointer-events-none absolute left-3 top-2 text-sm leading-[1.3] text-[#45d58d]">
+                            {">"}
+                          </span>
+                        <textarea
+                          value={quChatDraft}
+                          onChange={(e) => setQuChatDraft(e.target.value)}
+                          onKeyDown={handleQuChatKeyDown}
+                          placeholder="Ask QU..."
+                          className="terminal-block-caret min-h-[88px] w-full resize-none border border-[#5f6670] bg-transparent pl-[calc(0.75rem+2ch)] pr-20 py-2 text-sm leading-[1.3] text-[#2f9a67] placeholder:text-[#2f9a67]/80 focus:outline-none"
+                        />
+                          <button
+                            type="submit"
+                            aria-label="Submit"
+                            title="Submit"
+                            disabled={!quChatDraft.trim()}
+                            className="absolute bottom-4 right-3 rounded-full bg-black w-8 h-8 text-white hover:opacity-80 disabled:opacity-50 flex items-center justify-center"
+                          >
+                            <ArrowUp className="h-4 w-4" strokeWidth={2.25} />
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+
+                <div
+                  onMouseDown={startSplitResize}
+                  className="group/divider absolute top-0 bottom-0 z-30 hidden w-8 -translate-x-1/2 cursor-col-resize items-center justify-center md:flex"
+                  style={{ left: `${splitRatio}%` }}
+                  role="separator"
+                  aria-label="Resize panes"
+                  aria-orientation="vertical"
+                  title="Drag to resize panes"
+                >
+                  <div className={cn(
+                    "pointer-events-none absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2 bg-[#66ff99] transition-opacity duration-150",
+                    isResizingSplit ? "opacity-100" : "opacity-0 group-hover/divider:opacity-100",
+                  )} />
+                  <div className={cn(
+                    "pointer-events-none relative inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/65 bg-[#0a0d0c] text-[#66ff99] transition-opacity duration-150",
+                    isResizingSplit ? "opacity-100" : "opacity-0 group-hover/divider:opacity-100",
+                  )}>
+                    <MoveHorizontal className="h-5 w-5" />
+                  </div>
+                </div>
+              </>
+            )}
         </div>
       </main>
     </div>
@@ -1560,7 +1756,7 @@ function ProfileGeneratorView({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Portfolio</label>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <select
                       value={learnSource}
                       disabled={isGeneratorLocked}
@@ -1692,18 +1888,18 @@ function ProfileGeneratorView({
           {/* Catalog Panel */}
           {generatorTab === "catalog" && (
             <div className="space-y-6">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900 mb-1">Profile Catalog</h3>
                   <p className="text-sm text-slate-500">Canonical behavioral profiles learned from data.</p>
                 </div>
                 {catalogList.length > 0 && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                     <select
                       value={selectedCatalogVersion}
                       disabled={isGeneratorLocked}
                       onChange={(e) => { setSelectedCatalogVersion(e.target.value); loadCatalog(e.target.value); }}
-                      className="rounded-md border px-3 py-2 text-sm bg-white"
+                      className="rounded-md border px-3 py-2 text-sm bg-white w-full sm:w-auto"
                     >
                       {catalogList.map((c: any) => (
                         <option key={c.version} value={c.version}>
@@ -1780,7 +1976,7 @@ function ProfileGeneratorView({
                             {expandedProfile === p.profile_id && (
                               <tr key={`${p.profile_id}-detail`} className="bg-slate-50">
                                 <td colSpan={5} className="p-4">
-                                  <div className="grid grid-cols-2 gap-6">
+                                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                     <div>
                                       <h4 className="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wide">Centroid</h4>
                                       <div className="space-y-3">
@@ -1886,13 +2082,13 @@ function ProfileGeneratorView({
             <div className="space-y-6">
               <h3 className="text-lg font-semibold text-slate-900">Portfolio Optimization</h3>
               {catalogList.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-slate-500 shrink-0 w-20 text-left">Profile</label>
+                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+                  <label className="text-sm text-slate-500 shrink-0 sm:w-20 text-left">Profile</label>
                   <select
                     value={selectedCatalogVersion}
                     disabled={isGeneratorLocked}
                     onChange={(e) => { setSelectedCatalogVersion(e.target.value); fetchSavedOptimizations(e.target.value); }}
-                    className="rounded-md border px-3 py-2 text-sm bg-white w-full max-w-[640px]"
+                    className="rounded-md border px-3 py-2 text-sm bg-white w-full sm:max-w-[640px]"
                   >
                     {catalogList.map((c: any) => (
                       <option key={c.version} value={c.version}>
@@ -1912,13 +2108,13 @@ function ProfileGeneratorView({
               )}
 
               {incentiveSets.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-slate-500 shrink-0 w-20 text-left">Incentile</label>
+                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+                  <label className="text-sm text-slate-500 shrink-0 sm:w-20 text-left">Incentile</label>
                   <select
                     value={selectedIncentiveSetVersion}
                     disabled={isGeneratorLocked}
                     onChange={(e) => setSelectedIncentiveSetVersion(e.target.value)}
-                    className="rounded-md border px-3 py-2 text-sm bg-white w-full max-w-[640px]"
+                    className="rounded-md border px-3 py-2 text-sm bg-white w-full sm:max-w-[640px]"
                   >
                     {incentiveSets.map((s: any) => (
                       <option key={s.version} value={s.version}>
@@ -1966,15 +2162,15 @@ function ProfileGeneratorView({
               )}
 
               {(programOptions.length > 0 || selectedSavedOptimizationId) && (
-                <div className="flex items-center gap-3">
-                  <label className="text-sm text-slate-500 shrink-0 w-20 text-left">Program</label>
+                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
+                  <label className="text-sm text-slate-500 shrink-0 sm:w-20 text-left">Program</label>
                   <select
                     value={selectedSavedOptimizationId || ""}
                     disabled={isGeneratorLocked}
                     onChange={(e) => {
                       if (e.target.value) loadSavedOptimization(e.target.value);
                     }}
-                    className="rounded-md border px-3 py-2 text-sm bg-white w-full max-w-[640px]"
+                    className="rounded-md border px-3 py-2 text-sm bg-white w-full sm:max-w-[640px]"
                   >
                     {programOptions.map((program: any) => (
                       <option key={program.optimization_id} value={program.optimization_id}>
@@ -2003,7 +2199,7 @@ function ProfileGeneratorView({
                     </div>
                   )}
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     {isOptimizeActive ? (
                       <button
                         onClick={stopOptimization}
@@ -2037,7 +2233,7 @@ function ProfileGeneratorView({
                       </button>
                     )}
                     {showOptimizeStatusMessage && (
-                      <div className="min-w-0 flex-1 max-w-[520px] flex items-center gap-2">
+                      <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto max-w-full sm:max-w-[520px] flex items-center gap-2">
                         <img src="/linex-animated.svg" alt="Linex" className="h-5 w-5 shrink-0" />
                         <div className="min-w-0 text-sm text-slate-700 truncate">
                           {optimizationStopPhase === "cancelling" ? (
@@ -2318,7 +2514,7 @@ export function ProfileAssignmentView({ assignment }: { assignment: any }) {
       {assignment.alternates && assignment.alternates.length > 0 && (
         <div>
           <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Alternate Candidates</h4>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             {assignment.alternates.map((alt: any, i: number) => (
               <div key={i} className="rounded-md border border-slate-200 px-3 py-2 text-sm">
                 <span className="font-semibold">{alt.profile_id}</span>
@@ -2332,7 +2528,7 @@ export function ProfileAssignmentView({ assignment }: { assignment: any }) {
       {assignment.feature_vector && (
         <div>
           <h4 className="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wide">Feature Vector (normalized)</h4>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {BEHAVIORAL_AXES.map((ax) => {
               const primaryFeat = ax.features[0];
               const primaryVal = assignment.feature_vector[primaryFeat] ?? 0;
