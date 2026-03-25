@@ -1509,13 +1509,13 @@ export default function Home() {
                               </button>
                             </div>
                             {showRecentCatalogDetail && catalog && (
-                              <div className="mt-2 rounded-lg border overflow-x-auto" style={{ borderColor: C.border, background: C.surface }}>
-                                <div className="px-3 py-2 border-b text-[10px] tracking-wider font-semibold" style={{ borderColor: C.border, color: C.muted }}>
+                              <div className="mt-2 rounded-lg border overflow-x-clip" style={{ borderColor: C.border, background: C.surface }}>
+                                <div className="px-3 py-2 border-b text-[10px] tracking-wider font-semibold sticky top-0 z-10" style={{ borderColor: C.border, color: C.muted, background: C.surface }}>
                                   Version: <span className="font-mono">{catalog.version}</span> · Source: {catalog.source} · K={catalog.k}
                                   {catalog.total_learning_population > 0 && ` · ${catalog.total_learning_population.toLocaleString()} users`}
                                 </div>
                                 <table className="w-full text-xs">
-                                  <thead>
+                                  <thead className="sticky top-7 z-10" style={{ background: C.surface }}>
                                     <tr style={{ borderBottom: `1px solid ${C.border}`, color: C.muted }}>
                                       <th className="py-2 px-3 text-left font-medium w-8"></th>
                                       <th className="py-2 pr-4 text-left font-medium">Profile ID</th>
@@ -1634,10 +1634,10 @@ export default function Home() {
                   {/* Results table */}
                   {optimizationState?.results && optimizationState.results.length > 0 && (
                   <div className="rounded-xl border px-6 pb-6 pt-3 space-y-4" style={{ borderColor: C.border, background: C.surface }}>
-                    <h4 className="text-xs font-bold tracking-wider" style={{ color: "#00aaff" }}>Optimal Incentive Program</h4>
-                    <div className="overflow-x-auto">
+                    <h4 className="text-xs font-bold tracking-wider sticky top-0 z-10 pb-2" style={{ color: "#00aaff", background: C.surface }}>Optimal Incentive Program</h4>
+                    <div className="overflow-x-clip">
                       <table className="w-full text-sm">
-                        <thead>
+                        <thead className="sticky top-6 z-10" style={{ background: C.surface }}>
                           <tr style={{ borderBottom: `1px solid ${C.border}`, color: C.muted }}>
                             <th className="py-2 pr-4 font-medium text-left">Profile ID</th>
                             <th className="py-2 pr-4 font-medium text-left">Assigned Incentive(s)</th>
@@ -2570,12 +2570,12 @@ function ProfileGeneratorView({
                       <div className="space-y-6">
                           {/* Results table — most important, shown first */}
                           <div>
-                            <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center justify-between mb-4 sticky top-0 z-10 bg-white pb-2">
                               <h4 className="mt-0 font-semibold text-[#00aaff]">Optimal Incentive Program</h4>
                             </div>
-                            <div className="overflow-x-auto">
+                            <div className="overflow-x-clip">
                               <table className="w-full text-sm">
-                                <thead>
+                                <thead className="sticky top-8 z-10 bg-white">
                                   <tr className="border-b border-slate-200 text-left text-slate-500">
                                     <th className="py-2 pr-4 font-medium">Profile ID</th>
                                     <th className="py-2 pr-4 font-medium">Assigned Incentive(s)</th>
