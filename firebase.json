@@ -39,8 +39,12 @@
                 "function": "analyze_transactions"
             },
             {
-                "source": "/api/ask_qu",
-                "function": "ask_qu"
+                "source": "/api/ask_agent",
+                "function": "ask_agent"
+            },
+            {
+                "source": "/api/agent_chat",
+                "function": "agent_chat"
             },
             {
                 "source": "/api/list_test_users",

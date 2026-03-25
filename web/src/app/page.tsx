@@ -15,8 +15,9 @@ export default function Home() {
   const [activeView, setActiveView] = useState<View>("welcome");
   const [profilerTab, setProfilerTab] = useState<ProfilerTab>("test");
   const [generatorTab, setGeneratorTab] = useState<GeneratorTab>("learn");
-  const [quChatDraft, setQuChatDraft] = useState("");
-  const [quChatMessages, setQuChatMessages] = useState<Array<{ id: string; text: string; submittedAt: string }>>([]);
+  const [agentChatDraft, setAgentChatDraft] = useState("");
+  const [agentChatMessages, setAgentChatMessages] = useState<Array<{ id: string; role: "user" | "agent"; text: string; submittedAt: string }>>([]);
+  const [agentChatLoading, setAgentChatLoading] = useState(false);
   const [typedWelcomeLine, setTypedWelcomeLine] = useState("");
   const [splitRatio, setSplitRatio] = useState(50);
   const [isResizingSplit, setIsResizingSplit] = useState(false);
@@ -1127,24 +1128,57 @@ export default function Home() {
     });
     return stamp.replace(", ", ", ").replace(" AM", "AM").replace(" PM", "PM");
   };
-  const submitQuChat = () => {
-    const next = quChatDraft.trim();
-    if (!next) return;
-    const now = new Date();
-    setQuChatMessages((prev) => [
-      ...prev,
-      { id: `${Date.now()}-${prev.length}`, text: next, submittedAt: formatChatTimestamp(now) },
-    ]);
-    setQuChatDraft("");
+  const GREETING_RE = /^(h(i|ello|ey|owdy|ola)|yo|sup|what'?s\s*up|good\s*(morning|afternoon|evening|day)|gm|gn|thanks?(\s*you)?|ty|bye|cya|see\s*ya|cheers|greetings|ok|okay|k|cool|nice|lol|lmao|haha|wow|yep|yea(h)?|nope|no|yes)[!?.\s]*$/i;
+  const GIBBERISH_RE = /^[^a-zA-Z]*$|^(.)\1{4,}$|^[a-z]{1,2}$/i;
+  const isGibberish = (s: string) => GIBBERISH_RE.test(s) || (s.length <= 6 && !/[aeiou]/i.test(s)) || /^[^a-zA-Z0-9]*$/.test(s);
+  const CANNED: Record<string, string[]> = {
+    greeting: ["Hey! Ask me anything about your portfolio or spending data.", "Hello! How can I help with your portfolio today?", "Hi there! Ready to analyze some data."],
+    gibberish: ["I didn't quite catch that. Try asking about your portfolio or spending patterns.", "Could you rephrase that? I'm here to help with financial insights."],
   };
-  const handleQuChatKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const pickCanned = (kind: "greeting" | "gibberish") => CANNED[kind][Math.floor(Math.random() * CANNED[kind].length)];
+
+  const submitAgentChat = async () => {
+    const next = agentChatDraft.trim();
+    if (!next || agentChatLoading) return;
+    const now = new Date();
+    const ts = formatChatTimestamp(now);
+    const userMsg = { id: `${Date.now()}-u`, role: "user" as const, text: next, submittedAt: ts };
+    setAgentChatMessages((prev) => [...prev, userMsg]);
+    setAgentChatDraft("");
+
+    // Non-actionable: handle locally
+    if (GREETING_RE.test(next) || isGibberish(next)) {
+      const kind = GREETING_RE.test(next) ? "greeting" : "gibberish";
+      const reply = { id: `${Date.now()}-a`, role: "agent" as const, text: pickCanned(kind), submittedAt: formatChatTimestamp(new Date()) };
+      setAgentChatMessages((prev) => [...prev, reply]);
+      return;
+    }
+
+    // Actionable: route to backend
+    setAgentChatLoading(true);
+    try {
+      const res = await fetch(`${CLOUD_FUNCTION_URL}/agent_chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: next }),
+      });
+      const data = await res.json();
+      const reply = { id: `${Date.now()}-a`, role: "agent" as const, text: data.answer ?? data.error ?? "Something went wrong.", submittedAt: formatChatTimestamp(new Date()) };
+      setAgentChatMessages((prev) => [...prev, reply]);
+    } catch {
+      setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: "Connection error. Please try again.", submittedAt: formatChatTimestamp(new Date()) }]);
+    } finally {
+      setAgentChatLoading(false);
+    }
+  };
+  const handleAgentChatKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== "Enter") return;
     e.preventDefault();
-    submitQuChat();
+    submitAgentChat();
   };
-  const handleQuChatSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAgentChatSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    submitQuChat();
+    submitAgentChat();
   };
 
   return (
@@ -1688,9 +1722,9 @@ export default function Home() {
                   <div className="flex h-full min-h-0 flex-col">
                     <div className="flex min-h-0 flex-1 flex-col bg-transparent">
                       <div className="min-h-0 flex-1 overflow-auto px-4 py-1 flex flex-col justify-end">
-                        {quChatMessages.length === 0 ? (
+                        {agentChatMessages.length === 0 ? (
                           <div className="mb-0.5 flex items-center gap-2.5">
-                            <img src="/linex-icon.svg" alt="QU" className="h-[14px] w-[14px] shrink-0" />
+                            <img src="/linex-icon.svg" alt="Agent" className="h-[14px] w-[14px] shrink-0" />
                             <h2 className="text-sm leading-tight text-[#2f9a67]">
                               {typedWelcomeLine}
                             </h2>
@@ -1698,36 +1732,43 @@ export default function Home() {
 
                         ) : (
                           <div className="space-y-3">
-                            {quChatMessages.map((message) => (
-                              <div key={message.id} className="ml-auto flex max-w-[85%] flex-col items-end">
-                                <div className="w-fit rounded-md border border-[#5f6670] bg-[#0d1218] px-3 py-2 text-right">
-                                  <p className="text-sm text-[#2f9a67] break-words">{message.text}</p>
+                            {agentChatMessages.map((message) => (
+                              <div key={message.id} className={`flex max-w-[85%] flex-col ${message.role === "user" ? "ml-auto items-end" : "mr-auto items-start"}`}>
+                                <div className={`w-fit rounded-md border px-3 py-2 ${message.role === "user" ? "border-[#5f6670] bg-[#0d1218] text-right" : "border-[#2f9a67]/30 bg-[#0d1218] text-left"}`}>
+                                  <p className={`text-sm break-words ${message.role === "user" ? "text-[#2f9a67]" : "text-[#9ca3af]"}`}>{message.text}</p>
                                 </div>
-                                <p className="mt-1 whitespace-nowrap text-right text-[10px] text-[#6f7782]">{message.submittedAt}</p>
+                                <p className="mt-1 whitespace-nowrap text-[10px] text-[#6f7782]">{message.submittedAt}</p>
                               </div>
                             ))}
+                            {agentChatLoading && (
+                              <div className="mr-auto flex max-w-[85%] flex-col items-start">
+                                <div className="w-fit rounded-md border border-[#2f9a67]/30 bg-[#0d1218] px-3 py-2">
+                                  <p className="text-sm text-[#9ca3af] animate-pulse">Thinking...</p>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
 
                       <div className="shrink-0 px-4 py-3">
-                        <form className="relative" onSubmit={handleQuChatSubmit}>
+                        <form className="relative" onSubmit={handleAgentChatSubmit}>
                           <span className="pointer-events-none absolute left-3 top-2 text-sm leading-[1.3] text-[#45d58d]">
                             {">"}
                           </span>
                         <textarea
                           autoFocus
-                          value={quChatDraft}
-                          onChange={(e) => setQuChatDraft(e.target.value)}
-                          onKeyDown={handleQuChatKeyDown}
-                          placeholder="Ask QU..."
+                          value={agentChatDraft}
+                          onChange={(e) => setAgentChatDraft(e.target.value)}
+                          onKeyDown={handleAgentChatKeyDown}
+                          placeholder="Ask Agent..."
                           className="terminal-block-caret min-h-[88px] w-full resize-none border border-[#5f6670] bg-transparent pl-[calc(0.75rem+2ch)] pr-20 py-2 text-sm leading-[1.3] text-[#2f9a67] placeholder:text-[#2f9a67]/80 focus:outline-none"
                         />
                           <button
                             type="submit"
                             aria-label="Submit"
                             title="Submit"
-                            disabled={!quChatDraft.trim()}
+                            disabled={!agentChatDraft.trim() || agentChatLoading}
                             className="absolute bottom-4 right-3 rounded-full bg-[#66ff99] w-8 h-8 text-black hover:opacity-80 disabled:opacity-30 flex items-center justify-center"
                           >
                             <ArrowUp className="h-4 w-4" strokeWidth={2.25} />

@@ -1,4 +1,4 @@
-"""qu — Financial Quant MCP Server for the Linex loyalty platform.
+"""Agent — Financial Quant MCP Server for the Linex loyalty platform.
 
 Analyzes time-series financial transactions to profile users and
 recommend optimal loyalty credit cards.
@@ -24,7 +24,7 @@ from cards.catalog import CardCatalog
 from config import CARDS_PATH, GEMINI_API_KEY, MODEL
 from utils.formatters import format_features_for_llm
 
-mcp = FastMCP("qu")
+mcp = FastMCP("agent")
 
 # Load card catalog at startup
 _catalog = CardCatalog(str(CARDS_PATH))
@@ -108,7 +108,7 @@ async def match_card_tool(
 
 
 @mcp.tool()
-async def ask_qu_tool(
+async def ask_agent_tool(
     transactions: list[dict],
     question: str,
     customer_id: str = "",
@@ -203,7 +203,7 @@ async def list_available_cards_tool(
 
 # --- Resources ---
 
-@mcp.resource("qu://cards/catalog")
+@mcp.resource("agent://cards/catalog")
 def get_card_catalog() -> str:
     """The full credit card catalog as JSON."""
     return json.dumps(_catalog.cards, indent=2)

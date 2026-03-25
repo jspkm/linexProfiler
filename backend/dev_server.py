@@ -286,8 +286,8 @@ def ask_test_user():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/linexone-dev/us-central1/ask_qu", methods=["POST"])
-def ask_qu():
+@app.route("/linexone-dev/us-central1/ask_agent", methods=["POST"])
+def ask_agent():
     try:
         if not GEMINI_API_KEY:
             return jsonify({"error": "GEMINI_API_KEY not configured"}), 500
@@ -317,6 +317,30 @@ def ask_qu():
             "answer": answer,
             "customer_id": customer_id,
         })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/linexone-dev/us-central1/agent_chat", methods=["POST"])
+def agent_chat():
+    try:
+        if not GEMINI_API_KEY:
+            return jsonify({"error": "GEMINI_API_KEY not configured"}), 500
+
+        data = request.get_json(silent=True) or {}
+        message = (data.get("message") or "").strip()
+        if not message:
+            return jsonify({"error": "Missing message"}), 400
+
+        system = (
+            "You are Agent, a concise financial assistant for the Linex loyalty platform. "
+            "You help users understand their portfolio optimization results, spending patterns, "
+            "credit card incentive programs, and profile segmentation. "
+            "Keep answers brief and direct. Use plain language."
+        )
+        # Use flash for cost-effective general chat
+        answer = _llm_call(system, message)
+        return jsonify({"answer": answer})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -884,7 +908,8 @@ if __name__ == "__main__":
     print("  - POST /linexone-dev/us-central1/analyze_test_user")
     print("  - POST /linexone-dev/us-central1/analyze_transactions")
     print("  - POST /linexone-dev/us-central1/ask_test_user")
-    print("  - POST /linexone-dev/us-central1/ask_qu")
+    print("  - POST /linexone-dev/us-central1/ask_agent")
+    print("  - POST /linexone-dev/us-central1/agent_chat")
     print("  Profile Generator:")
     print("  - POST /linexone-dev/us-central1/learn_profiles")
     print("  - POST /linexone-dev/us-central1/assign_profile")

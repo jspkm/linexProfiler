@@ -1,4 +1,4 @@
-# qu — Linex Profiler Quant Agent
+# Agent — Linex Profiler Quant Agent
 
 A financial profiling agent for the Linex loyalty platform. Analyzes transaction histories to build demographic/behavioral profiles and recommend optimal credit cards.
 
@@ -153,7 +153,7 @@ firebase use prod
 | `POST` | `/analyze_test_user` | Analyze a test user by ID |
 | `POST` | `/analyze_transactions` | Analyze uploaded transactions |
 | `POST` | `/ask_test_user` | Ask a question about a test user |
-| `POST` | `/ask_qu` | Ask a question about uploaded transactions |
+| `POST` | `/ask_agent` | Ask a question about uploaded transactions |
 
 ### MCP Server
 

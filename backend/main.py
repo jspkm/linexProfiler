@@ -1,4 +1,4 @@
-"""Firebase Cloud Functions entry point for the Linex Profiler Quant Agent.
+"""Firebase Cloud Functions entry point for the Linex Agent.
 
 All data is persisted to/read from Firestore — no mock data.
 Heavy imports are deferred to minimize cold-start latency.
@@ -137,7 +137,7 @@ def analyze_transactions(req: https_fn.Request) -> https_fn.Response:
 
 
 @https_fn.on_request(cors=_CORS_ALL, timeout_sec=120)
-def ask_qu(req: https_fn.Request) -> https_fn.Response:
+def ask_agent(req: https_fn.Request) -> https_fn.Response:
     if req.method == "OPTIONS":
         return https_fn.Response(status=204)
     try:
@@ -178,6 +178,41 @@ def ask_qu(req: https_fn.Request) -> https_fn.Response:
             "answer": response.text.strip(),
             "customer_id": customer_id,
         })
+    except Exception as e:
+        return _json_response({"error": str(e)}, 500)
+
+
+@https_fn.on_request(cors=_CORS_ALL, timeout_sec=60)
+def agent_chat(req: https_fn.Request) -> https_fn.Response:
+    if req.method == "OPTIONS":
+        return https_fn.Response(status=204)
+    try:
+        if not GEMINI_API_KEY:
+            return _json_response({"error": "GEMINI_API_KEY not configured"}, 500)
+
+        from google import genai
+        from google.genai import types
+
+        req_json = req.get_json(silent=True) or {}
+        message = (req_json.get("message") or "").strip()
+        if not message:
+            return _json_response({"error": "Missing message"}, 400)
+
+        system = (
+            "You are Agent, a concise financial assistant for the Linex loyalty platform. "
+            "You help users understand their portfolio optimization results, spending patterns, "
+            "credit card incentive programs, and profile segmentation. "
+            "Keep answers brief and direct. Use plain language."
+        )
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=message,
+            config=types.GenerateContentConfig(
+                system_instruction=system, temperature=0.3, max_output_tokens=500,
+            ),
+        )
+        return _json_response({"answer": response.text.strip()})
     except Exception as e:
         return _json_response({"error": str(e)}, 500)
 

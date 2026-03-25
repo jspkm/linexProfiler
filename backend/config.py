@@ -28,7 +28,7 @@ DEVELOPMENT_STORAGE_BUCKET = "linexone-dev-portfolio-uploads"
 
 # Gemini API
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-MODEL = os.environ.get("QU_MODEL", "gemini-2.0-flash")
+MODEL = os.environ.get("AGENT_MODEL", "gemini-2.0-flash")
 
 # Data paths (testing only)
 DATA_DIR = PROJECT_ROOT / "data"
