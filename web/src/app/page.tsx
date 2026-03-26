@@ -18,6 +18,24 @@ export default function Home() {
   const [agentChatDraft, setAgentChatDraft] = useState("");
   const [agentChatMessages, setAgentChatMessages] = useState<Array<{ id: string; role: "user" | "agent"; text: string; submittedAt: string }>>([]);
   const [agentChatLoading, setAgentChatLoading] = useState(false);
+  const agentOptLastStep = useRef("");
+  const agentOptDoneRef = useRef(false);
+  const agentLearnAbortRef = useRef<AbortController | null>(null);
+  const [pendingDeleteCatalog, _setPendingDeleteCatalog] = useState<string | null>(null);
+  const pendingDeleteCatalogRef = useRef<string | null>(null);
+  const setPendingDeleteCatalog = (v: string | null) => { pendingDeleteCatalogRef.current = v; _setPendingDeleteCatalog(v); };
+
+  // Custom computed columns for the Optimal Incentive Program grid
+  // Each column: { id, label, expr, format }
+  // expr is a function string referencing row fields: original_portfolio_ltv, new_gross_portfolio_ltv, portfolio_cost, lift, new_net_portfolio_ltv
+  const [gridCustomColumns, setGridCustomColumns] = useState<Array<{
+    id: string;
+    label: string;
+    expr: (r: any) => number;
+    exprSource: string;          // human-readable formula
+    format: "dollar" | "percent" | "ratio" | "number";
+    totalsExpr?: "sum" | "avg" | "weighted";
+  }>>([]);
   const [typedWelcomeLine, setTypedWelcomeLine] = useState("");
   const [splitRatio, setSplitRatio] = useState(50);
   const [isResizingSplit, setIsResizingSplit] = useState(false);
@@ -88,6 +106,7 @@ export default function Home() {
   const loadOptimizationFetchSeqRef = useRef(0);
   const optimizationCacheBootstrappedRef = useRef(false);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
+  const agentChatScrollRef = useRef<HTMLDivElement | null>(null);
 
   if (!optimizationCacheBootstrappedRef.current && typeof window !== "undefined") {
     optimizationCacheBootstrappedRef.current = true;
@@ -783,11 +802,91 @@ export default function Home() {
           updateOptimizationCache(data, data?.status !== "running");
           setOptimizationState(data);
 
-          if (data.status === "completed" || data.status === "failed" || data.status === "cancelled") {
+          // Update optimization progress in agent chat
+          const step = data.current_step || "";
+          const pct = data.progress ?? 0;
+          if (step && step !== agentOptLastStep.current && !agentOptDoneRef.current) {
+            agentOptLastStep.current = step;
+            // Translate raw backend steps into friendly messages
+            let friendly = step;
+            const evalMatch = step.match(/^Evaluating (\S+)\s+\((\d+)(?:\/(\d+))?\)(?:\s*-\s*iter\s+(\d+)\/(\d+))?/);
+            const doneMatch = step.match(/^(Converged|No meaningful improvement|Reached max iterations) for (\S+)/);
+            if (evalMatch) {
+              const [, profId, , total, iter, maxIter] = evalMatch;
+              const label = profId + (total ? ` (${total} total)` : "");
+              friendly = iter ? `Optimizing ${label} — iteration ${iter}/${maxIter}` : `Optimizing ${label}`;
+            } else if (doneMatch) {
+              const [, reason] = doneMatch;
+              // Extract profile index from the previous in-progress line
+              friendly = reason === "Converged" ? "converged, best bundle found"
+                : reason === "No meaningful improvement" ? "best bundle found"
+                : "complete";
+            } else if (step === "Initializing...") {
+              friendly = "Initializing";
+            }
+            // Expanding dots: cycle through ., .., ...
+            const dotCount = (pct % 3) + 1;
+            const dots = ".".repeat(dotCount);
+            setAgentChatMessages((msgs) => {
+              const idx = msgs.findIndex((m) => m.id === "opt-progress");
+              const allLines = idx >= 0 ? msgs[idx].text.split("\n") : [];
+              const doneLines = allLines.filter((l: string) => l.startsWith("✓"));
+              const isProfileDone = Boolean(doneMatch);
+              let stageLines: string[];
+              if (isProfileDone) {
+                // Find the last in-progress line and mark it done
+                const lastInProgress = allLines.find((l: string) => !l.startsWith("✓") && l.startsWith("Optimizing"));
+                const profileLabel = lastInProgress?.match(/^(Optimizing \S+)/)?.[1] || "Profile";
+                stageLines = [...doneLines, `✓ ${profileLabel} — ${friendly}`];
+              } else {
+                stageLines = [...doneLines, `${friendly}${dots}`];
+              }
+              const progressText = "Starting optimization...\n" + stageLines.join("\n");
+              if (idx >= 0) {
+                const copy = [...msgs];
+                copy[idx] = { ...copy[idx], text: progressText };
+                return copy;
+              }
+              return [...msgs, { id: "opt-progress", role: "agent" as const, text: progressText, submittedAt: formatChatTimestamp(new Date()) }];
+            });
+          }
+
+          if ((data.status === "completed" || data.status === "failed" || data.status === "cancelled") && !agentOptDoneRef.current) {
+            agentOptDoneRef.current = true;
             setOptimizationPolling(false);
             setOptimizeInProgress(false);
-            // Auto-save on completion or cancellation (with partial results)
-            if (data.status === "completed" || data.status === "cancelled") {
+            agentOptLastStep.current = "";
+            if (data.status === "completed") {
+              const totalLift = (data.results || []).reduce((s: number, r: any) => s + (r.lift || 0), 0);
+              const profileCount = (data.results || []).length;
+              setAgentChatMessages((prev) => {
+                const prog = prev.find((m) => m.id === "opt-progress");
+                const stageLines = prog ? prog.text.split("\n").filter((l: string) => l.startsWith("✓")).join("\n") : "";
+                // Replace the opt-progress message in-place with the final result
+                const idx = prev.findIndex((m) => m.id === "opt-progress");
+                const finalText = "Starting optimization...\n" + (stageLines ? stageLines + "\n" : "") + `✓ Optimal Incentive Program generated (${profileCount} profiles)\nTotal portfolio lift: +$${Math.round(totalLift).toLocaleString("en-US")}`;
+                if (idx >= 0) {
+                  const copy = [...prev];
+                  copy[idx] = { ...copy[idx], id: `${Date.now()}-opt-done`, text: finalText, submittedAt: formatChatTimestamp(new Date()) };
+                  return copy;
+                }
+                // opt-progress already removed (e.g. by stop) — don't duplicate
+                return prev;
+              });
+            } else {
+              setAgentChatMessages((prev) => {
+                const idx = prev.findIndex((m) => m.id === "opt-progress");
+                const failText = `Optimization ${data.status}. ${data.error || ""}`.trim();
+                if (idx >= 0) {
+                  const copy = [...prev];
+                  copy[idx] = { ...copy[idx], id: `${Date.now()}-opt-done`, text: failText, submittedAt: formatChatTimestamp(new Date()) };
+                  return copy;
+                }
+                return prev;
+              });
+            }
+            // Auto-save on completion (skip if user stopped)
+            if (data.status === "completed" && !optimizationStopRequestedRef.current) {
               fetch(`${CLOUD_FUNCTION_URL}/save_optimize/${optimizationId}`, { method: "POST" })
                 .then(() => fetchSavedOptimizations(selectedCatalogVersion || undefined))
                 .catch(() => { });
@@ -802,7 +901,7 @@ export default function Home() {
     };
 
     poll(); // Initial poll
-    const interval = setInterval(poll, 2000);
+    const interval = setInterval(poll, 800);
     return () => clearInterval(interval);
   }, [optimizationId, optimizationPolling, selectedCatalogVersion, updateOptimizationCache]);
 
@@ -1137,6 +1236,428 @@ export default function Home() {
   };
   const pickCanned = (kind: "greeting" | "gibberish") => CANNED[kind][Math.floor(Math.random() * CANNED[kind].length)];
 
+  // ── Custom grid column helpers ──────────────────────────────────
+  const GRID_FIELDS: Record<string, string> = {
+    original_portfolio_ltv: "Original LTV before optimization",
+    new_gross_portfolio_ltv: "LTV after incentives, before cost",
+    portfolio_cost: "Cost of assigned incentives",
+    lift: "Revenue lift from incentives",
+    new_net_portfolio_ltv: "Final LTV (net of cost)",
+  };
+
+  /** Build full optimization context sent to backend so the LLM can give specific, data-grounded answers */
+  const buildGridContext = () => {
+    const ctx: Record<string, any> = {
+      fields: GRID_FIELDS,
+      custom_columns: gridCustomColumns.map((c) => ({ label: c.label, formula: c.exprSource, format: c.format })),
+      has_results: Boolean(optimizationState?.results?.length),
+    };
+
+    // Clustering / catalog context
+    if (catalog) {
+      ctx.catalog = {
+        version: catalog.version,
+        source: catalog.source,
+        k: catalog.k,
+        total_learning_population: catalog.total_learning_population,
+        profiles: (catalog.profiles || []).map((p: any) => ({
+          profile_id: p.profile_id,
+          label: p.label,
+          description: p.description,
+          portfolio_ltv: p.portfolio_ltv,
+          population_count: p.population_count,
+          population_share: p.population_share,
+        })),
+      };
+    }
+
+    // Incentive set context
+    if (selectedIncentiveSetDetail) {
+      ctx.incentive_set = {
+        name: selectedIncentiveSetDetail.name || selectedIncentiveSetDetail.version,
+        version: selectedIncentiveSetDetail.version,
+        incentives: (selectedIncentiveSetDetail.incentives || []).map((inc: any) => ({
+          name: inc.name,
+          estimated_annual_cost_per_user: inc.estimated_annual_cost_per_user,
+          redemption_rate: inc.redemption_rate,
+          effective_cost: Math.round((inc.estimated_annual_cost_per_user || 0) * (inc.redemption_rate || 1)),
+        })),
+      };
+    }
+
+    // Optimization run context
+    if (optimizationState) {
+      ctx.optimization = {
+        status: optimizationState.status,
+        max_iterations: optimizationState.max_iterations || 50,
+        convergence_window: optimizationState.convergence_window || 6,
+        patience: optimizationState.patience || 3,
+        started_at: optimizationState.started_at,
+        completed_at: optimizationState.completed_at,
+        results: (optimizationState.results || []).map((r: any) => ({
+          profile_id: r.profile_id,
+          selected_incentives: r.selected_incentives,
+          original_portfolio_ltv: r.original_portfolio_ltv,
+          new_gross_portfolio_ltv: r.new_gross_portfolio_ltv,
+          portfolio_cost: r.portfolio_cost,
+          lift: r.lift,
+          new_net_portfolio_ltv: r.new_net_portfolio_ltv,
+        })),
+      };
+    }
+
+    // Available profiles (catalogs) — generated from clustering
+    ctx.available_profiles = catalogList.map((c: any) => ({
+      version: c.version,
+      source: c.source,
+      k: c.k,
+    }));
+    // Uploaded portfolios (datasets) — raw transaction data uploaded by the user
+    ctx.uploaded_portfolios = (uploadedDatasets || []).map((d: any) => ({
+      dataset_id: d.dataset_id,
+      name: d.upload_name,
+      created_at: d.created_at,
+    }));
+    // Saved optimization programs for listing
+    ctx.saved_programs = (savedOptimizations || []).map((exp: any) => ({
+      optimization_id: exp.optimization_id,
+      status: exp.status,
+      profile_count: exp.result_count || 0,
+      total_lift: exp.total_lift ?? null,
+      started_at: exp.started_at,
+      completed_at: exp.completed_at,
+      catalog_version: exp.catalog_version,
+      incentive_set_version: exp.incentive_set_version,
+    }));
+    ctx.pending_delete_catalog = pendingDeleteCatalogRef.current;
+    ctx.is_busy = Boolean(learnInProgress || optimizeInProgress);
+    if (learnInProgress) ctx.busy_reason = "profile_creation";
+    else if (optimizeInProgress) ctx.busy_reason = "optimization";
+    ctx.selected_catalog_version = selectedCatalogVersion || null;
+    ctx.selected_incentive_set_version = selectedIncentiveSetVersion || null;
+    ctx.has_optimization_result = Boolean(optimizationState?.status === "completed");
+
+    return ctx;
+  };
+
+  /** Try to compile a formula string from the backend into a safe row evaluator */
+  const compileFormula = (formula: string): ((r: any) => number) | null => {
+    // Only allow field names, numbers, operators, parens, whitespace
+    const allowedFields = Object.keys(GRID_FIELDS);
+    let expr = formula;
+    // Replace field names with r.<field>
+    for (const f of allowedFields.sort((a, b) => b.length - a.length)) {
+      expr = expr.replace(new RegExp(`\\b${f}\\b`, "g"), `r.${f}`);
+    }
+    const sanitized = expr.replace(/r\.\w+/g, "0").replace(/[0-9.+\-*/() \t]/g, "");
+    if (sanitized.length > 0) return null;
+    try {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function("r", `"use strict"; const v = ${expr}; return typeof v === 'number' && isFinite(v) ? v : 0;`) as (r: any) => number;
+      fn({ original_portfolio_ltv: 1, new_gross_portfolio_ltv: 2, portfolio_cost: 1, lift: 0.5, new_net_portfolio_ltv: 1.5 });
+      return fn;
+    } catch {
+      return null;
+    }
+  };
+
+  /** Execute structured actions returned by the backend */
+  const executeAgentActions = async (actions: any[]) => {
+    for (const action of actions) {
+      if (action.type === "add_column") {
+        const fn = compileFormula(action.formula || "");
+        if (!fn) continue;
+        const newCol = {
+          id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          label: (action.label || "").toUpperCase(),
+          expr: fn,
+          exprSource: action.formula,
+          format: (["dollar", "percent", "ratio", "number"].includes(action.format) ? action.format : "number") as "dollar" | "percent" | "ratio" | "number",
+          totalsExpr: (action.totals === "avg" ? "avg" : "sum") as "sum" | "avg",
+        };
+        setGridCustomColumns((prev) => {
+          const idx = prev.findIndex((c) => c.label.toLowerCase() === newCol.label.toLowerCase());
+          if (idx >= 0) { const updated = [...prev]; updated[idx] = newCol; return updated; }
+          return [...prev, newCol];
+        });
+      } else if (action.type === "remove_column") {
+        const target = (action.label || "").toLowerCase();
+        setGridCustomColumns((prev) => prev.filter((c) => c.label.toLowerCase() !== target));
+
+      } else if (action.type === "create_profile") {
+        // Create a new profile catalog via learn_profiles
+        const k = Number(action.k);
+        const source = action.source || "uploaded";
+        if (!k || k < 2) continue;
+        if (learnInProgress || optimizeInProgress) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "Cannot create a profile while another operation is in progress.", submittedAt: formatChatTimestamp(new Date()) }]);
+          continue;
+        }
+        // Find the dataset to use
+        const datasetId = action.dataset_id || (uploadedDatasets.length > 0 ? uploadedDatasets[0].dataset_id : null);
+        if (source.startsWith("uploaded") && !datasetId) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "No uploaded dataset found. Please upload a portfolio CSV first.", submittedAt: formatChatTimestamp(new Date()) }]);
+          continue;
+        }
+        // Trigger learn
+        setLearnK(k);
+        if (datasetId) setLearnSource(`uploaded-dataset:${datasetId}`);
+        // Call learn_profiles directly
+        try {
+          setAgentChatLoading(true);
+          setLearnInProgress(true);
+          const learnAbort = new AbortController();
+          agentLearnAbortRef.current = learnAbort;
+          const body: any = { k, source: datasetId ? `uploaded-dataset:${datasetId}` : source };
+          const res = await fetch(`${CLOUD_FUNCTION_URL}/learn_profiles`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: learnAbort.signal,
+          });
+          if (res.ok) {
+            const data = await res.json();
+            await fetchCatalogList();
+            if (data.version) {
+              setSelectedCatalogVersion(data.version);
+              loadCatalog(data.version);
+            }
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Profile created successfully (version: ${data.version || "unknown"}, K=${k}, ${(data.profiles || []).length} profiles).`, submittedAt: formatChatTimestamp(new Date()) }]);
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to create profile: ${errData.error || res.statusText}`, submittedAt: formatChatTimestamp(new Date()) }]);
+          }
+        } catch (e: any) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error creating profile: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } finally {
+          agentLearnAbortRef.current = null;
+          setAgentChatLoading(false);
+          setLearnInProgress(false);
+        }
+
+      } else if (action.type === "request_delete_profile") {
+        // Stage a catalog version for deletion — wait for user confirmation
+        const version = action.version || "";
+        if (version) setPendingDeleteCatalog(version);
+
+      } else if (action.type === "confirm_delete_profile") {
+        // User confirmed deletion — delete catalog and associated optimizations
+        const version = pendingDeleteCatalogRef.current || action.version || "";
+        if (!version) continue;
+        if (learnInProgress || optimizeInProgress) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "Cannot delete while another operation is in progress.", submittedAt: formatChatTimestamp(new Date()) }]);
+          continue;
+        }
+        try {
+          setAgentChatLoading(true);
+          const deleteProgressId = `${Date.now()}-del-progress`;
+          setAgentChatMessages((prev) => [...prev, { id: deleteProgressId, role: "agent" as const, text: `Deleting profile ${version.slice(0, 12)}...`, submittedAt: formatChatTimestamp(new Date()) }]);
+          // First delete all optimizations associated with this catalog
+          const listRes = await fetch(`${CLOUD_FUNCTION_URL}/list_optimizations?catalog_version=${version}`);
+          if (listRes.ok) {
+            const listData = await listRes.json();
+            const optimizations = listData.optimizations || [];
+            for (const opt of optimizations) {
+              await fetch(`${CLOUD_FUNCTION_URL}/delete_optimize/${opt.optimization_id}`, { method: "DELETE" });
+            }
+          }
+          // Then delete the catalog itself
+          const res = await fetch(`${CLOUD_FUNCTION_URL}/delete_catalog/${version}`, { method: "DELETE" });
+          if (res.ok) {
+            // Refresh catalog list from server
+            await fetchCatalogList();
+            if (selectedCatalogVersion === version) {
+              setSelectedCatalogVersion("");
+              setCatalog(null);
+              setOptimizationState(null);
+              setOptimizationId(null);
+            }
+            setAgentChatMessages((prev) => {
+              const idx = prev.findIndex((m) => m.id === deleteProgressId);
+              const doneMsg = { id: `${Date.now()}-sys`, role: "agent" as const, text: `Done. Profile and associated programs deleted.`, submittedAt: formatChatTimestamp(new Date()) };
+              if (idx >= 0) { const copy = [...prev]; copy[idx] = { ...prev[idx], ...doneMsg }; return copy; }
+              return [...prev, doneMsg];
+            });
+          } else {
+            setAgentChatMessages((prev) => {
+              const idx = prev.findIndex((m) => m.id === deleteProgressId);
+              const failMsg = { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to delete profile.`, submittedAt: formatChatTimestamp(new Date()) };
+              if (idx >= 0) { const copy = [...prev]; copy[idx] = { ...prev[idx], ...failMsg }; return copy; }
+              return [...prev, failMsg];
+            });
+          }
+        } catch {
+          setAgentChatMessages((prev) => {
+            const idx = prev.findIndex((m) => m.id === deleteProgressId);
+            const errMsg = { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error deleting profile.`, submittedAt: formatChatTimestamp(new Date()) };
+            if (idx >= 0) { const copy = [...prev]; copy[idx] = { ...prev[idx], ...errMsg }; return copy; }
+            return [...prev, errMsg];
+          });
+        } finally {
+          setPendingDeleteCatalog(null);
+          setAgentChatLoading(false);
+        }
+
+      } else if (action.type === "cancel_delete_profile") {
+        setPendingDeleteCatalog(null);
+
+      } else if (action.type === "fork_profile") {
+        const version = action.version || "";
+        if (!version) continue;
+        try {
+          const res = await fetch(`${CLOUD_FUNCTION_URL}/fork_catalog`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source_version: version }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            await fetchCatalogList();
+            if (data.version) {
+              setSelectedCatalogVersion(data.version);
+              loadCatalog(data.version);
+            }
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Profile duplicated. New version: ${data.version || "unknown"}.`, submittedAt: formatChatTimestamp(new Date()) }]);
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to duplicate profile: ${errData.error || res.statusText}`, submittedAt: formatChatTimestamp(new Date()) }]);
+          }
+        } catch (e: any) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error duplicating profile: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        }
+
+      } else if (action.type === "list_programs") {
+        // Show a numbered list of saved optimization programs
+        const programs = savedOptimizations || [];
+        let listText: string;
+        if (programs.length === 0) {
+          listText = "No programs found for the current context.";
+        } else {
+          const lines = programs.map((exp: any, i: number) => {
+            const totalLift = exp.total_lift ?? (Array.isArray(exp.results)
+              ? exp.results.reduce((s: number, r: any) => s + (r.lift || 0), 0)
+              : null);
+            const profileCount = exp.result_count || (Array.isArray(exp.results) ? exp.results.length : 0);
+            const date = exp.completed_at || exp.started_at || "";
+            const dateStr = date ? new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " " + new Date(date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—";
+            const status = (exp.status || "unknown").toLowerCase();
+            const liftStr = totalLift != null ? `+$${Math.round(totalLift).toLocaleString("en-US")}` : "—";
+            return `${i + 1}. ${dateStr} · ${profileCount} profiles · lift: ${liftStr} · ${status}`;
+          });
+          listText = lines.join("\n");
+        }
+        // Replace the last agent message (LLM reply) with the list
+        setAgentChatMessages((prev) => {
+          const copy = [...prev];
+          for (let i = copy.length - 1; i >= 0; i--) {
+            if (copy[i].role === "agent") {
+              const header = copy[i].text;
+              copy[i] = { ...copy[i], text: header + "\n\n" + listText };
+              return copy;
+            }
+          }
+          return [...copy, { id: `${Date.now()}-sys`, role: "agent" as const, text: listText, submittedAt: formatChatTimestamp(new Date()) }];
+        });
+
+      } else if (action.type === "delete_program") {
+        const optId = action.optimization_id || "";
+        if (!optId) continue;
+        try {
+          setAgentChatLoading(true);
+          const delProgressId = `${Date.now()}-delprog`;
+          setAgentChatMessages((prev) => [...prev, { id: delProgressId, role: "agent" as const, text: "Deleting program...", submittedAt: formatChatTimestamp(new Date()) }]);
+          await fetch(`${CLOUD_FUNCTION_URL}/delete_optimize/${optId}`, { method: "DELETE" });
+          // Clear from UI if it was the active optimization
+          if (optimizationId === optId) {
+            setOptimizationState(null);
+            setOptimizationId(null);
+            setSelectedSavedOptimizationId(null);
+          }
+          delete optimizationCacheRef.current[optId];
+          await fetchSavedOptimizations(selectedCatalogVersion || undefined);
+          setAgentChatMessages((prev) => {
+            const idx = prev.findIndex((m) => m.id === delProgressId);
+            const doneMsg = { id: `${Date.now()}-sys`, role: "agent" as const, text: "Done. Program deleted.", submittedAt: formatChatTimestamp(new Date()) };
+            if (idx >= 0) { const copy = [...prev]; copy[idx] = { ...prev[idx], ...doneMsg }; return copy; }
+            return [...prev, doneMsg];
+          });
+        } catch (e: any) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to delete program: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } finally {
+          setAgentChatLoading(false);
+        }
+
+      } else if (action.type === "run_optimization") {
+        // Start an Optimal Incentive Program optimization run
+        if (!selectedCatalogVersion) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "No profile selected. Please select a profile first.", submittedAt: formatChatTimestamp(new Date()) }]);
+          continue;
+        }
+        if (optimizeInProgress || learnInProgress) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "Another operation is already in progress. Please wait for it to complete.", submittedAt: formatChatTimestamp(new Date()) }]);
+          continue;
+        }
+        // Use specified catalog/incentive set or fall back to currently selected
+        const catVersion = action.catalog_version || selectedCatalogVersion;
+        const incVersion = action.incentive_set_version || selectedIncentiveSetVersion || undefined;
+        try {
+          setAgentChatLoading(true);
+          setOptimizeInProgress(true);
+          setOptimizationState(null);
+          setOptimizationId(null);
+          setShowOptimizationProgress(true);
+          setGenError("");
+          optimizationStopRequestedRef.current = false;
+          const res = await fetch(`${CLOUD_FUNCTION_URL}/start_optimize`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ catalog_version: catVersion, incentive_set_version: incVersion }),
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || "Failed to start optimization");
+          }
+          const data = await res.json();
+          const optId = String(data?.optimization_id || data?.experiment_id || "");
+          if (!optId) throw new Error("Missing optimization_id");
+          setOptimizationId(optId);
+          setSelectedSavedOptimizationId(optId);
+          setOptimizationPolling(true);
+          // Reset stage tracker and convert the last agent reply into the progress message
+          agentOptLastStep.current = "";
+          agentOptDoneRef.current = false;
+          setAgentChatMessages((prev) => {
+            const copy = [...prev];
+            // Find the last agent message (the LLM's "Starting optimization." reply) and repurpose it
+            for (let i = copy.length - 1; i >= 0; i--) {
+              if (copy[i].role === "agent") {
+                copy[i] = { ...copy[i], id: "opt-progress", text: "Starting optimization..." };
+                return copy;
+              }
+            }
+            return [...copy, { id: "opt-progress", role: "agent" as const, text: "Starting optimization...", submittedAt: formatChatTimestamp(new Date()) }];
+          });
+        } catch (e: any) {
+          setOptimizeInProgress(false);
+          setShowOptimizationProgress(false);
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to start optimization: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } finally {
+          setAgentChatLoading(false);
+        }
+      }
+    }
+  };
+
+  const formatCustomColValue = (val: number, format: "dollar" | "percent" | "ratio" | "number") => {
+    if (!isFinite(val)) return "—";
+    switch (format) {
+      case "dollar": return `$${Math.round(val).toLocaleString("en-US")}`;
+      case "percent": return `${(val * 100).toFixed(1)}%`;
+      case "ratio": return val.toFixed(2);
+      default: return val.toLocaleString("en-US", { maximumFractionDigits: 2 });
+    }
+  };
+
   const submitAgentChat = async () => {
     const next = agentChatDraft.trim();
     if (!next || agentChatLoading) return;
@@ -1146,25 +1667,55 @@ export default function Home() {
     setAgentChatMessages((prev) => [...prev, userMsg]);
     setAgentChatDraft("");
 
-    // Non-actionable: handle locally
-    if (GREETING_RE.test(next) || isGibberish(next)) {
+    // Handle pending delete confirmation directly on the frontend (no LLM round-trip needed)
+    if (pendingDeleteCatalogRef.current) {
+      const lower = next.toLowerCase();
+      const YES_RE = /^(y|yes|yep|yeah|yea|confirm|sure|ok|okay|do it|go ahead)$/i;
+      const NO_RE = /^(n|no|nope|nah|cancel|never\s*mind|abort)$/i;
+      if (YES_RE.test(lower)) {
+        await executeAgentActions([{ type: "confirm_delete_profile" }]);
+        return;
+      } else if (NO_RE.test(lower)) {
+        await executeAgentActions([{ type: "cancel_delete_profile" }]);
+        const cancelReply = { id: `${Date.now()}-a`, role: "agent" as const, text: "Deletion cancelled.", submittedAt: formatChatTimestamp(new Date()) };
+        setAgentChatMessages((prev) => [...prev, cancelReply]);
+        return;
+      }
+      // If not a clear yes/no, fall through to backend
+    }
+
+    // Non-actionable: handle locally (skip when agent just asked something — user may be replying with short input like "8", "y", etc.)
+    const lastMsg = agentChatMessages[agentChatMessages.length - 1];
+    const agentJustAsked = lastMsg?.role === "agent";
+    if (!agentJustAsked && !pendingDeleteCatalogRef.current && (GREETING_RE.test(next) || isGibberish(next))) {
       const kind = GREETING_RE.test(next) ? "greeting" : "gibberish";
       const reply = { id: `${Date.now()}-a`, role: "agent" as const, text: pickCanned(kind), submittedAt: formatChatTimestamp(new Date()) };
       setAgentChatMessages((prev) => [...prev, reply]);
       return;
     }
 
-    // Actionable: route to backend
+    // Route to backend with grid context
     setAgentChatLoading(true);
     try {
+      const body: Record<string, any> = { message: next };
+      // Always include grid context so the LLM can manage profiles, manipulate the grid, etc.
+      body.grid_context = buildGridContext();
+      // Send recent conversation history for follow-up context (last 20 messages)
+      const recentHistory = agentChatMessages.slice(-20).map((m) => ({ role: m.role === "user" ? "user" : "agent", text: m.text }));
+      if (recentHistory.length > 0) body.history = recentHistory;
       const res = await fetch(`${CLOUD_FUNCTION_URL}/agent_chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: next }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
+      // Show the LLM's answer first
       const reply = { id: `${Date.now()}-a`, role: "agent" as const, text: data.answer ?? data.error ?? "Something went wrong.", submittedAt: formatChatTimestamp(new Date()) };
       setAgentChatMessages((prev) => [...prev, reply]);
+      // Execute any structured actions returned by the backend (awaited so loading stays visible)
+      if (Array.isArray(data.actions) && data.actions.length > 0) {
+        await executeAgentActions(data.actions);
+      }
     } catch {
       setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: "Connection error. Please try again.", submittedAt: formatChatTimestamp(new Date()) }]);
     } finally {
@@ -1180,6 +1731,74 @@ export default function Home() {
     e.preventDefault();
     submitAgentChat();
   };
+
+  const agentStoppingRef = useRef(false);
+  const handleAgentStop = async () => {
+    if (agentStoppingRef.current) return;
+    agentStoppingRef.current = true;
+    if (optimizeInProgress) {
+      // Immediately guard against any further poll updates
+      agentOptDoneRef.current = true;
+      optimizationStopRequestedRef.current = true;
+      agentOptLastStep.current = "";
+      // Stop polling and clear all optimization state
+      setOptimizationPolling(false);
+      setOptimizeInProgress(false);
+      const optId = optimizationId;
+      setOptimizationState(null);
+      setOptimizationId(null);
+      setSelectedSavedOptimizationId(null);
+      setShowOptimizationProgress(false);
+      setOptimizationStopPhase("idle");
+      setGenLoading(false);
+      setOptimizationStarting(false);
+      // Clear cache for this optimization
+      if (optId) {
+        delete optimizationCacheRef.current[optId];
+      }
+      // Cancel and delete on server, then refresh list
+      if (optId) {
+        (async () => {
+          try {
+            await fetch(`${CLOUD_FUNCTION_URL}/cancel_optimize/${optId}`, { method: "POST" }).catch(() => {});
+            await fetch(`${CLOUD_FUNCTION_URL}/delete_optimize/${optId}`, { method: "DELETE" }).catch(() => {});
+          } finally {
+            // Clear cache again in case polling re-added it
+            delete optimizationCacheRef.current[optId];
+            await fetchSavedOptimizations(selectedCatalogVersion || undefined);
+          }
+        })();
+      }
+      // Replace progress message (or any leftover) with cancellation notice
+      const stoppedId = `${Date.now()}-stopped`;
+      setAgentChatMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === "opt-progress");
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = { ...copy[idx], id: stoppedId, text: "Optimization stopped.", submittedAt: formatChatTimestamp(new Date()) };
+          return copy;
+        }
+        // If opt-progress already renamed, just append
+        return [...prev, { id: stoppedId, role: "agent" as const, text: "Optimization stopped.", submittedAt: formatChatTimestamp(new Date()) }];
+      });
+    } else if (learnInProgress) {
+      // Abort profile creation fetch
+      if (agentLearnAbortRef.current) {
+        agentLearnAbortRef.current.abort();
+        agentLearnAbortRef.current = null;
+      }
+      setLearnInProgress(false);
+      setAgentChatLoading(false);
+      setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-stopped`, role: "agent" as const, text: "Profile creation stopped.", submittedAt: formatChatTimestamp(new Date()) }]);
+    }
+    agentStoppingRef.current = false;
+  };
+
+  // Auto-scroll chat to bottom on new messages
+  useEffect(() => {
+    const el = agentChatScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [agentChatMessages, agentChatLoading]);
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: C.bg, fontFamily: "'IBM Plex Mono', 'SF Mono', Menlo, monospace", color: C.text }}>
@@ -1432,6 +2051,8 @@ export default function Home() {
                 setSelectedIncentiveSetVersion={setSelectedIncentiveSetVersion}
                 selectedIncentiveSetDetail={selectedIncentiveSetDetail}
                 incentiveSetDetailLoading={incentiveSetDetailLoading}
+                gridCustomColumns={gridCustomColumns}
+                formatCustomColValue={formatCustomColValue}
               />
               }
 
@@ -1646,6 +2267,9 @@ export default function Home() {
                             <th className="py-2 pr-4 font-medium text-right">Cost</th>
                             <th className="py-2 pr-4 font-medium text-right">Lift</th>
                             <th className="py-2 pr-4 font-bold text-right">Final LTV</th>
+                            {gridCustomColumns.map((col) => (
+                              <th key={col.id} className="py-2 pr-4 font-medium text-right" style={{ color: "#00aaff" }}>{col.label}</th>
+                            ))}
                           </tr>
                         </thead>
                         <tbody>
@@ -1679,6 +2303,11 @@ export default function Home() {
                               <td className="py-3 pr-4 text-right font-mono font-bold" style={{ color: C.text }}>
                                 {`$${Math.round(r.new_net_portfolio_ltv).toLocaleString('en-US')}`}
                               </td>
+                              {gridCustomColumns.map((col) => (
+                                <td key={col.id} className="py-3 pr-4 text-right font-mono" style={{ color: "#00aaff" }}>
+                                  {formatCustomColValue(col.expr(r), col.format)}
+                                </td>
+                              ))}
                             </tr>
                           ))}
                           <tr style={{ background: C.surfaceLt }}>
@@ -1700,6 +2329,18 @@ export default function Home() {
                             <td className="py-4 pr-4 text-right font-mono font-bold" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>
                               {`$${Math.round(optimizationState.results.reduce((s: number, r: any) => s + (r.new_net_portfolio_ltv || 0), 0)).toLocaleString('en-US')}`}
                             </td>
+                            {gridCustomColumns.map((col) => {
+                              const results = optimizationState.results as any[];
+                              const vals = results.map((r: any) => col.expr(r));
+                              const agg = col.totalsExpr === "avg"
+                                ? vals.reduce((s, v) => s + v, 0) / (vals.length || 1)
+                                : vals.reduce((s, v) => s + v, 0);
+                              return (
+                                <td key={col.id} className="py-4 pr-4 text-right font-mono font-bold" style={{ color: "#00aaff", borderTop: `1px solid ${C.border}` }}>
+                                  {formatCustomColValue(agg, col.format)}
+                                </td>
+                              );
+                            })}
                           </tr>
                         </tbody>
                       </table>
@@ -1721,7 +2362,8 @@ export default function Home() {
               <aside className="min-h-0 flex-1 overflow-hidden bg-[#111820] p-3 md:p-4">
                   <div className="flex h-full min-h-0 flex-col">
                     <div className="flex min-h-0 flex-1 flex-col bg-transparent">
-                      <div className="min-h-0 flex-1 overflow-auto px-4 py-1 flex flex-col justify-end">
+                      <div ref={agentChatScrollRef} className="min-h-0 flex-1 overflow-auto px-4 py-1 flex flex-col [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        <div className="flex-1" />
                         {agentChatMessages.length === 0 ? (
                           <div className="mb-0.5 flex items-center gap-2.5">
                             <img src="/linex-icon.svg" alt="Agent" className="h-[14px] w-[14px] shrink-0" />
@@ -1734,16 +2376,45 @@ export default function Home() {
                           <div className="space-y-3">
                             {agentChatMessages.map((message) => (
                               <div key={message.id} className={`flex max-w-[85%] flex-col ${message.role === "user" ? "ml-auto items-end" : "mr-auto items-start"}`}>
-                                <div className={`w-fit rounded-md border px-3 py-2 ${message.role === "user" ? "border-[#5f6670] bg-[#0d1218] text-right" : "border-[#2f9a67]/30 bg-[#0d1218] text-left"}`}>
-                                  <p className={`text-sm break-words ${message.role === "user" ? "text-[#2f9a67]" : "text-[#9ca3af]"}`}>{message.text}</p>
+                                <div className={`w-fit rounded-md px-3 py-2 ${message.role === "user" ? "border border-[#5f6670] bg-[#0d1218] text-right" : "text-left"}`}>
+                                  {message.id === "opt-progress" && (
+                                    <div className="mb-1.5 flex items-center gap-2">
+                                      <svg width="14" height="14" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <defs>
+                                          <clipPath id="optProgressClip">
+                                            <rect x="0" y="0" width="44" height="0">
+                                              <animate attributeName="height" values="0;44;44;0" keyTimes="0;0.4;0.8;1" dur="2s" repeatCount="indefinite" />
+                                            </rect>
+                                          </clipPath>
+                                        </defs>
+                                        <g clipPath="url(#optProgressClip)">
+                                          <path d="M11.2383 44H0L2.93359 40H14.1729L11.2383 44ZM17.1074 36H5.86816L8.80273 32H20.042L17.1074 36ZM22.9756 28H11.7363L14.6709 24H25.9102L22.9756 28ZM28.8447 20H17.6055L20.54 16H31.7793L28.8447 20ZM34.7139 12H23.4746L26.4092 8H37.6484L34.7139 12ZM40.583 4H29.3438L32.2783 0H43.5176L40.583 4Z" fill="#2f9a67"/>
+                                          <path d="M42.3877 44H30.9336L28.1143 40H39.5693L42.3877 44ZM36.75 36H25.2949L22.4756 32H33.9307L36.75 36ZM31.1113 28H22.9756L25.9102 24H28.292L31.1113 28ZM17.6055 20H14.0176L11.1982 16H20.54L17.6055 20ZM19.835 12H8.37988L5.56055 8H17.0156L19.835 12ZM14.1963 4H2.74121L0.264648 0.486328H11.7197L14.1963 4Z" fill="#2f9a67"/>
+                                        </g>
+                                      </svg>
+                                    </div>
+                                  )}
+                                  <p className={`text-sm break-words whitespace-pre-wrap ${message.role === "user" ? "text-[#2f9a67]" : "text-[#9ca3af]"}`}>{message.text}</p>
                                 </div>
-                                <p className="mt-1 whitespace-nowrap text-[10px] text-[#6f7782]">{message.submittedAt}</p>
+                                {message.id !== "opt-progress" && <p className="mt-1 whitespace-nowrap text-[10px] text-[#6f7782]">{message.submittedAt}</p>}
                               </div>
                             ))}
                             {agentChatLoading && (
                               <div className="mr-auto flex max-w-[85%] flex-col items-start">
-                                <div className="w-fit rounded-md border border-[#2f9a67]/30 bg-[#0d1218] px-3 py-2">
-                                  <p className="text-sm text-[#9ca3af] animate-pulse">Thinking...</p>
+                                <div className="w-fit rounded-md px-3 py-2 flex items-center">
+                                  <svg width="16" height="16" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <defs>
+                                      <clipPath id="agentDrawClip">
+                                        <rect x="0" y="0" width="44" height="0">
+                                          <animate attributeName="height" values="0;44;44;0" keyTimes="0;0.4;0.8;1" dur="2s" repeatCount="indefinite" />
+                                        </rect>
+                                      </clipPath>
+                                    </defs>
+                                    <g clipPath="url(#agentDrawClip)">
+                                      <path d="M11.2383 44H0L2.93359 40H14.1729L11.2383 44ZM17.1074 36H5.86816L8.80273 32H20.042L17.1074 36ZM22.9756 28H11.7363L14.6709 24H25.9102L22.9756 28ZM28.8447 20H17.6055L20.54 16H31.7793L28.8447 20ZM34.7139 12H23.4746L26.4092 8H37.6484L34.7139 12ZM40.583 4H29.3438L32.2783 0H43.5176L40.583 4Z" fill="#2f9a67"/>
+                                      <path d="M42.3877 44H30.9336L28.1143 40H39.5693L42.3877 44ZM36.75 36H25.2949L22.4756 32H33.9307L36.75 36ZM31.1113 28H22.9756L25.9102 24H28.292L31.1113 28ZM17.6055 20H14.0176L11.1982 16H20.54L17.6055 20ZM19.835 12H8.37988L5.56055 8H17.0156L19.835 12ZM14.1963 4H2.74121L0.264648 0.486328H11.7197L14.1963 4Z" fill="#2f9a67"/>
+                                    </g>
+                                  </svg>
                                 </div>
                               </div>
                             )}
@@ -1764,15 +2435,27 @@ export default function Home() {
                           placeholder="Ask Agent..."
                           className="terminal-block-caret min-h-[88px] w-full resize-none border border-[#5f6670] bg-transparent pl-[calc(0.75rem+2ch)] pr-20 py-2 text-sm leading-[1.3] text-[#2f9a67] placeholder:text-[#2f9a67]/80 focus:outline-none"
                         />
-                          <button
-                            type="submit"
-                            aria-label="Submit"
-                            title="Submit"
-                            disabled={!agentChatDraft.trim() || agentChatLoading}
-                            className="absolute bottom-4 right-3 rounded-full bg-[#66ff99] w-8 h-8 text-black hover:opacity-80 disabled:opacity-30 flex items-center justify-center"
-                          >
-                            <ArrowUp className="h-4 w-4" strokeWidth={2.25} />
-                          </button>
+                          {(optimizeInProgress || learnInProgress) ? (
+                            <button
+                              type="button"
+                              aria-label="Stop"
+                              title="Stop"
+                              onClick={handleAgentStop}
+                              className="absolute bottom-4 right-3 rounded-full bg-[#66ff99] w-8 h-8 text-black hover:opacity-80 flex items-center justify-center"
+                            >
+                              <Square className="h-3.5 w-3.5 fill-current" strokeWidth={0} />
+                            </button>
+                          ) : (
+                            <button
+                              type="submit"
+                              aria-label="Submit"
+                              title="Submit"
+                              disabled={!agentChatDraft.trim() || agentChatLoading}
+                              className="absolute bottom-4 right-3 rounded-full bg-[#66ff99] w-8 h-8 text-black hover:opacity-80 disabled:opacity-30 flex items-center justify-center"
+                            >
+                              <ArrowUp className="h-4 w-4" strokeWidth={2.25} />
+                            </button>
+                          )}
                         </form>
                       </div>
                     </div>
@@ -1813,6 +2496,7 @@ function ProfileGeneratorView({
   optimizationState, optimizationStarting, optimizeInProgress, optimizationStopPhase, showOptimizationProgress,
   savedOptimizations, selectedSavedOptimizationId, loadSavedOptimization, fetchSavedOptimizations,
   incentiveSets, selectedIncentiveSetVersion, setSelectedIncentiveSetVersion, selectedIncentiveSetDetail, incentiveSetDetailLoading,
+  gridCustomColumns, formatCustomColValue,
 }: any) {
   const [showIncentiveSetIncentives, setShowIncentiveSetIncentives] = useState(false);
   const [showDecisionSteps, setShowDecisionSteps] = useState(false);
@@ -2584,6 +3268,9 @@ function ProfileGeneratorView({
                                     <th className="py-2 pr-4 font-medium text-right">Cost</th>
                                     <th className="py-2 pr-4 font-medium text-right">Lift</th>
                                     <th className="py-2 pr-4 font-bold text-right">Final LTV</th>
+                                    {(gridCustomColumns || []).map((col: any) => (
+                                      <th key={col.id} className="py-2 pr-4 font-medium text-right text-[#00aaff]">{col.label}</th>
+                                    ))}
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -2614,6 +3301,11 @@ function ProfileGeneratorView({
                                       <td className="py-3 pr-4 text-right font-mono text-slate-900 font-bold">
                                         {`$${Math.round(r.new_net_portfolio_ltv).toLocaleString('en-US')}`}
                                       </td>
+                                      {(gridCustomColumns || []).map((col: any) => (
+                                        <td key={col.id} className="py-3 pr-4 text-right font-mono text-[#00aaff]">
+                                          {formatCustomColValue(col.expr(r), col.format)}
+                                        </td>
+                                      ))}
                                     </tr>
                                   ))}
                                   <tr className="bg-slate-50/50">
@@ -2650,6 +3342,18 @@ function ProfileGeneratorView({
                                         return `$${Math.round(totalNet).toLocaleString('en-US')}`;
                                       })()}
                                     </td>
+                                    {(gridCustomColumns || []).map((col: any) => {
+                                      const results = optimizationState.results as any[];
+                                      const vals = results.map((r: any) => col.expr(r));
+                                      const agg = col.totalsExpr === "avg"
+                                        ? vals.reduce((s: number, v: number) => s + v, 0) / (vals.length || 1)
+                                        : vals.reduce((s: number, v: number) => s + v, 0);
+                                      return (
+                                        <td key={col.id} className="py-4 pr-4 text-right font-mono font-bold text-[#00aaff] border-t border-slate-200">
+                                          {formatCustomColValue(agg, col.format)}
+                                        </td>
+                                      );
+                                    })}
                                   </tr>
                                 </tbody>
                               </table>

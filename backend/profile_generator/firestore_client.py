@@ -150,13 +150,17 @@ def fs_list_optimizations(catalog_version: str | None = None) -> list[dict]:
         for doc in docs:
             data = _serialize_dates(doc.to_dict())
             optimization_id = data.get("optimization_id") or data.get("experiment_id") or doc.id
+            results_list = data.get("results", [])
+            total_lift = sum(r.get("lift", 0) for r in results_list if isinstance(r, dict))
             results_by_optimization_id[optimization_id] = {
                 "optimization_id": optimization_id,
                 "catalog_version": data.get("catalog_version", ""),
+                "incentive_set_version": data.get("incentive_set_version", ""),
                 "status": data.get("status", ""),
                 "started_at": data.get("started_at", ""),
                 "completed_at": data.get("completed_at", ""),
-                "result_count": len(data.get("results", [])),
+                "result_count": len(results_list),
+                "total_lift": round(total_lift),
             }
     results = list(results_by_optimization_id.values())
     results.sort(
