@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { CLOUD_FUNCTION_URL } from "@/lib/api";
+import { CLOUD_FUNCTION_URL, isAbortError } from "@/lib/api";
 import type { ApiRecord } from "@/lib/types";
 
 export function useProfiler() {
@@ -66,7 +66,7 @@ export function useProfiler() {
       const data = await res.json();
       setResults(data);
     } catch (err: unknown) {
-      if (!(err instanceof DOMException && err.name === "AbortError")) {
+      if (!isAbortError(err)) {
         setError(err instanceof Error ? err.message : "An error occurred");
       }
     } finally {
@@ -97,7 +97,7 @@ export function useProfiler() {
       const data = await res.json();
       setResults(data);
     } catch (err: unknown) {
-      if (!(err instanceof DOMException && err.name === "AbortError")) {
+      if (!isAbortError(err)) {
         setError(err instanceof Error ? err.message : "An error occurred");
       }
     } finally {

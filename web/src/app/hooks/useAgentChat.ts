@@ -779,9 +779,10 @@ export function useAgentChat(deps: AgentChatDeps) {
       return;
     }
 
-    // Ensure incentive set detail is loaded
+    // Ensure incentive set detail is loaded and matches selected version
     let freshIncentiveSetDetail: ApiRecord | null = null;
-    if (!deps.selectedIncentiveSetDetail && (deps.selectedIncentiveSetVersion || deps.incentiveSets.length > 0)) {
+    const detailMismatch = deps.selectedIncentiveSetDetail && deps.selectedIncentiveSetVersion && deps.selectedIncentiveSetDetail.version !== deps.selectedIncentiveSetVersion;
+    if ((!deps.selectedIncentiveSetDetail || detailMismatch) && (deps.selectedIncentiveSetVersion || deps.incentiveSets.length > 0)) {
       const versionToLoad = deps.selectedIncentiveSetVersion || deps.incentiveSets.find((s: ApiRecord) => s.is_default)?.version || deps.incentiveSets[0]?.version;
       if (versionToLoad) {
         try {

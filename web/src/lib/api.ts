@@ -21,3 +21,12 @@ export async function postJson<T = ApiRecord>(url: string, body: ApiRecord, init
     ...init,
   });
 }
+
+export async function deleteJson<T = ApiRecord>(url: string, init?: RequestInit): Promise<T> {
+  return fetchJson<T>(url, { method: "DELETE", ...init });
+}
+
+/** Check if an error is an AbortError (from AbortController). */
+export function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "AbortError";
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useRefState } from "@/lib/useRefState";
 import { Loader2, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatChatTimestamp, formatCustomColValue } from "@/lib/helpers";
@@ -29,12 +30,8 @@ export default function Home() {
   const [showRecentIncentiveDetail, setShowRecentIncentiveDetail] = useState(false);
 
   // Pending delete state with refs for synchronous access in async flows
-  const [_pendingDeleteCatalog, _setPendingDeleteCatalog] = useState<string | null>(null);
-  const pendingDeleteCatalogRef = useRef<string | null>(null);
-  const setPendingDeleteCatalog = (v: string | null) => { pendingDeleteCatalogRef.current = v; _setPendingDeleteCatalog(v); };
-  const [_pendingDeleteIncentiveSet, _setPendingDeleteIncentiveSet] = useState<string | null>(null);
-  const pendingDeleteIncentiveSetRef = useRef<string | null>(null);
-  const setPendingDeleteIncentiveSet = (v: string | null) => { pendingDeleteIncentiveSetRef.current = v; _setPendingDeleteIncentiveSet(v); };
+  const [, setPendingDeleteCatalog, pendingDeleteCatalogRef] = useRefState<string | null>(null);
+  const [, setPendingDeleteIncentiveSet, pendingDeleteIncentiveSetRef] = useRefState<string | null>(null);
 
   const splitPane = useSplitPane();
   const profiler = useProfiler();

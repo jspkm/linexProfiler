@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { CLOUD_FUNCTION_URL } from "@/lib/api";
+import { CLOUD_FUNCTION_URL, isAbortError } from "@/lib/api";
 import { OPTIMIZATION_CACHE_STORAGE_KEY } from "@/app/components/theme";
 import type { ApiRecord } from "@/lib/types";
 
@@ -164,7 +164,7 @@ export function useOptimization() {
       setSelectedSavedOptimizationId(startedOptimizationId);
       setOptimizationPolling(true);
     } catch (err: unknown) {
-      if (!(err instanceof DOMException && err.name === "AbortError")) {
+      if (!isAbortError(err)) {
         setGenError(err instanceof Error ? err.message : "Failed to start optimization");
       }
       setOptimizationStopPhase("idle"); setOptimizeInProgress(false);

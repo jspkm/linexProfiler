@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { CLOUD_FUNCTION_URL, DATASETS_URL } from "@/lib/api";
+import { CLOUD_FUNCTION_URL, DATASETS_URL, isAbortError } from "@/lib/api";
 import type { ApiRecord } from "@/lib/types";
 
 export function useLearnProfiles() {
@@ -92,7 +92,7 @@ export function useLearnProfiles() {
           signal: controller.signal,
         });
       } catch (err: unknown) {
-        if (err instanceof DOMException && err.name === "AbortError") throw err;
+        if (isAbortError(err)) throw err;
         lastNetworkError = err;
         if (attempt === maxAttempts) throw err;
         setLearnStatus(`Learning... temporary network issue, retrying (${attempt}/${maxAttempts - 1})`);
@@ -289,7 +289,7 @@ export function useLearnProfiles() {
     } catch (err: unknown) {
       if (learnStopRequestedRef.current) {
         setGenError("");
-      } else if (err instanceof DOMException && err.name === "AbortError") {
+      } else if (isAbortError(err)) {
         setGenError("Learning request timed out after 9 minutes. Try a smaller file.");
       } else {
         setGenError(err instanceof Error ? err.message : "Learning failed");
