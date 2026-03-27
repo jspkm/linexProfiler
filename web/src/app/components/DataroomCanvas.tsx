@@ -3,8 +3,16 @@
 import { useRef, useState } from "react";
 import { C } from "./theme";
 
+interface Dataset {
+  dataset_id: string;
+  upload_name?: string;
+  row_count?: number;
+  parsed_user_count?: number;
+  created_at?: string;
+}
+
 interface DataroomCanvasProps {
-  datasets: any[];
+  datasets: Dataset[];
 }
 
 const columns = ["Name", "Rows", "User Count", "Uploaded On"];
@@ -115,7 +123,7 @@ export default function DataroomCanvas({ datasets }: DataroomCanvasProps) {
               </td>
             </tr>
             {sampleOpen &&
-              datasets.map((d: any) => (
+              datasets.map((d) => (
                 <tr key={d.dataset_id} style={{ borderBottom: `1px solid ${C.border}22` }}>
                   <td style={{ paddingTop: 8, paddingBottom: 8, paddingRight: 12, paddingLeft: 36, fontSize: 12, color: C.text, fontWeight: 500 }}>
                     {d.upload_name || d.dataset_id}
@@ -154,7 +162,7 @@ export default function DataroomCanvas({ datasets }: DataroomCanvasProps) {
             {uploadsOpen && (
               <tr>
                 <td colSpan={4} style={{ padding: "12px 12px", paddingLeft: 36, color: C.muted, fontSize: 11 }}>
-                  No files uploaded yet. Click "Upload Files" to add data.
+                  No files uploaded yet. Click &quot;Upload Files&quot; to add data.
                 </td>
               </tr>
             )}

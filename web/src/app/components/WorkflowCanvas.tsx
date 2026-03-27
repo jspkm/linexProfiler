@@ -1,6 +1,6 @@
 "use client";
 
-import { C, type View } from "./theme";
+import { C } from "./theme";
 
 export interface Workflow {
   workflow_id: string;

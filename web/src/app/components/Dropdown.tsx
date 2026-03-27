@@ -48,7 +48,7 @@ export default function Dropdown({ value, options, onChange, title, className = 
 
       {open && (
         <div
-          className="absolute left-0 top-[calc(100%+4px)] z-50 w-full min-w-[200px] rounded-md border py-1 shadow-lg overflow-auto max-h-[280px]"
+          className="absolute left-0 top-[calc(100%+4px)] z-50 w-full min-w-50 rounded-md border py-1 shadow-lg overflow-auto max-h-[280px]"
           style={{ borderColor: C.border, background: C.panel }}
         >
           {options.map((opt) => (

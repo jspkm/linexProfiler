@@ -1,34 +1,61 @@
-# Agent — Linex Profiler Quant Agent
+# Linex Terminal
 
-A financial profiling agent for the Linex loyalty platform. Analyzes transaction histories to build demographic/behavioral profiles and recommend optimal credit cards.
+Terminal and quant agents for the Linex loyalty platform. Learns behavioral profiles from transaction data, optimizes incentive programs through simulation, and provides an agent chat interface for portfolio management.
 
 ## Architecture
 
 ```
 linex-terminal/
-├── backend/          Python API (Firebase Cloud Functions + Flask dev server)
-│   ├── analysis/     Feature engineering, profiling, card matching
-│   ├── cards/        Credit card catalog and uploader
-│   ├── models/       Pydantic models (features, profile, recommendation)
-│   ├── prompts/      LLM system prompts
-│   ├── utils/        Formatters and TOON serialization
-│   ├── main.py       Firebase Cloud Functions entry point
-│   ├── dev_server.py Local Flask dev server
-│   ├── server.py     MCP server (for IDE integration)
-│   └── config.py     Environment config
-├── web/              Next.js frontend (static export)
-│   └── src/app/      Pages and components
-├── firebase.json     Firebase Hosting + Functions config
-└── .firebaserc       Firebase project config
+├── backend/                Python API (Firebase Cloud Functions + Flask dev server)
+│   ├── analysis/           Feature engineering, profiling, card matching
+│   ├── cards/              Credit card catalog and uploader
+│   ├── models/             Pydantic models (features, profile, recommendation, incentive_set)
+│   ├── profile_generator/  Profile learning pipeline (clustering, optimization, incentive mgmt)
+│   │   ├── assigner.py         Profile assignment
+│   │   ├── feature_derivation.py  Feature extraction from transactions
+│   │   ├── feature_transform.py   Feature normalization/scaling
+│   │   ├── firestore_client.py    Firestore persistence layer
+│   │   ├── incentive_manager.py   Incentive set CRUD
+│   │   ├── optimization.py        Incentive program optimization engine
+│   │   ├── trainer.py             K-means clustering trainer
+│   │   └── versioning.py          Catalog version management
+│   ├── prompts/            LLM system prompts
+│   ├── scripts/            Migration scripts
+│   ├── tests/              pytest test suite
+│   ├── utils/              Formatters and TOON serialization
+│   ├── main.py             Firebase Cloud Functions entry point
+│   ├── dev_server.py       Local Flask dev server
+│   ├── server.py           MCP server (for IDE integration)
+│   └── config.py           Environment config
+├── web/                    Next.js frontend (static export)
+│   └── src/
+│       ├── app/
+│       │   ├── page.tsx            Main app (agent chat, profiler, optimization views)
+│       │   └── components/
+│       │       ├── NavRail.tsx         Left sidebar navigation
+│       │       ├── WorkflowCanvas.tsx  Workflow selection grid
+│       │       ├── DataroomCanvas.tsx  Dataset management table
+│       │       ├── Dropdown.tsx        Reusable dropdown component
+│       │       ├── WelcomeCanvas.tsx   Welcome screen
+│       │       └── theme.ts           Design tokens and constants
+│       ├── lib/utils.ts        Tailwind class merge utility
+│       └── __tests__/          Vitest test suite
+├── firebase.json           Firebase Hosting + Functions config
+└── .firebaserc             Firebase project config (dev/prod)
 ```
 
-**Backend** — Python. Processes transactions through a pipeline: parse → clean → compute features → LLM profile → match cards. All LLM calls use the Gemini API.
+## Key Features
 
-**Frontend** — Next.js (static export). Calls the backend API endpoints to analyze test users or uploaded CSVs.
+- **Profile Learning** — K-means clustering on behavioral axes (recency, frequency, spend, refund) to learn customer profiles from transaction data
+- **Incentive Optimization** — Simulation engine to derive optimal incentive programs per profile with convergence detection
+- **Agent Chat** — Conversational interface with structured actions for workflow management, CRUD operations, and grid column customization
+- **Workflow Management** — Create, edit, delete custom workflows; built-in "Optimize portfolio" template
+- **Dataroom** — Upload and manage portfolio datasets (CSV/XLSX)
+- **Incentive Sets** — CRUD with cascade delete, default set management, and usage checking
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.10+ (Conda recommended)
 - Node.js 18+
 - A [Gemini API key](https://aistudio.google.com/apikey)
 - Firebase CLI (`npm install -g firebase-tools`) — for deployment only
@@ -101,6 +128,32 @@ Preflight the local setup without starting servers:
 npm run dev:check
 ```
 
+## Testing
+
+### Backend (pytest)
+
+```bash
+cd backend
+pip install -e ".[dev]"
+pytest
+```
+
+### Frontend (Vitest)
+
+```bash
+cd web
+npm test              # single run
+npm run test:watch    # watch mode
+```
+
+### Linting
+
+```bash
+cd web
+npm run lint          # ESLint
+npx tsc --noEmit     # TypeScript type check
+```
+
 ## Environment Split
 
 Use configuration, not branches, to separate local development from production:
@@ -110,7 +163,7 @@ Use configuration, not branches, to separate local development from production:
 - `backend/.env.prod`: tracked production reference template
 - `web/.env.dev`: tracked local frontend API base URL
 - `web/.env.local`: optional machine-specific frontend override
-- Firebase Hosting in production: frontend uses `/api` rewrites from [`firebase.json`](/Users/jspkm/dev/linex-terminal/firebase.json)
+- Firebase Hosting in production: frontend uses `/api` rewrites from `firebase.json`
 
 Frontend behavior:
 
@@ -145,15 +198,75 @@ firebase use dev
 firebase use prod
 ```
 
-### API Endpoints
+## API Endpoints
+
+### Transactions & Agent
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/analyze_transactions` | Analyze uploaded transactions |
+| `POST` | `/agent_chat` | Agent chat with structured actions |
+| `POST` | `/ask_agent` | Ask a question about uploaded transactions |
+
+### Test Users
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET`  | `/list_test_users` | List available test user IDs |
-| `POST` | `/analyze_test_user` | Analyze a test user by ID |
-| `POST` | `/analyze_transactions` | Analyze uploaded transactions |
+| `GET`  | `/analyze_test_user` | Analyze a test user by ID |
 | `POST` | `/ask_test_user` | Ask a question about a test user |
-| `POST` | `/ask_agent` | Ask a question about uploaded transactions |
+
+### Profile Catalogs
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/list_profile_catalogs` | List all profile catalog versions |
+| `GET`  | `/profile_catalog` | Get a specific profile catalog |
+| `POST` | `/learn_profiles` | Learn profiles from transaction data |
+| `POST` | `/fork_catalog` | Fork an existing catalog |
+| `DELETE` | `/delete_catalog/{version}` | Delete a catalog version |
+
+### Portfolio Datasets
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/list_portfolio_datasets` | List uploaded portfolio datasets |
+| `POST` | `/create_portfolio_upload_url` | Get a signed URL for dataset upload |
+| `DELETE` | `/delete_portfolio_dataset/{id}` | Delete a portfolio dataset |
+
+### Optimization
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/start_optimize` | Start incentive optimization run |
+| `GET`  | `/optimize_status/{id}` | Poll optimization progress |
+| `GET`  | `/list_optimizations` | List saved optimizations |
+| `GET`  | `/load_optimize/{id}` | Load a saved optimization result |
+| `POST` | `/save_optimize/{id}` | Save an optimization |
+| `POST` | `/cancel_optimize/{id}` | Cancel a running optimization |
+| `DELETE` | `/delete_optimize/{id}` | Delete a saved optimization |
+
+### Incentive Sets
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/list_incentive_sets` | List all incentive sets |
+| `GET`  | `/incentive_set/{version}` | Get a specific incentive set |
+| `POST` | `/create_incentive_set` | Create a new incentive set |
+| `POST` | `/set_default_incentive_set` | Set the default incentive set |
+| `PUT`  | `/update_incentive_set/{version}` | Update an incentive set |
+| `DELETE` | `/delete_incentive_set/{version}` | Delete an incentive set (cascade) |
+| `GET`  | `/check_incentive_set_usage/{version}` | Check if an incentive set is in use |
+
+### Workflows
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/list_workflows` | List all workflows |
+| `GET`  | `/get_workflow/{id}` | Get a specific workflow |
+| `POST` | `/create_workflow` | Create a new workflow |
+| `PUT`  | `/update_workflow/{id}` | Update a workflow |
+| `DELETE` | `/delete_workflow/{id}` | Delete a workflow |
 
 ### MCP Server
 
