@@ -2,14 +2,16 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Papa from "papaparse";
-import { Upload, FileText, Search, Activity, Loader2, Users, Boxes, ChevronRight, Square, Trash2, ArrowUp, MoveHorizontal } from "lucide-react";
+import { Upload, Loader2, Users, ChevronRight, Square, Trash2, ArrowUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import NavRail from "./components/NavRail";
-import WelcomeCanvas from "./components/WelcomeCanvas";
-import WorkflowCanvas from "./components/WorkflowCanvas";
+import WorkflowCanvas, { type Workflow } from "./components/WorkflowCanvas";
 import DataroomCanvas from "./components/DataroomCanvas";
 import Dropdown from "./components/Dropdown";
-import { C, BEHAVIORAL_AXES, PRIMARY_FEATURES, CLOUD_FUNCTION_URL, DATASETS_URL, OPTIMIZATION_CACHE_STORAGE_KEY, type View, type ProfilerTab, type GeneratorTab } from "./components/theme";
+import { C, BEHAVIORAL_AXES, CLOUD_FUNCTION_URL, DATASETS_URL, OPTIMIZATION_CACHE_STORAGE_KEY, type View, type ProfilerTab, type GeneratorTab } from "./components/theme";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ApiRecord is a deliberate safe-any wrapper for untyped API responses
+type ApiRecord = Record<string, any>;
 
 export default function Home() {
   const [activeView, setActiveView] = useState<View>("welcome");
@@ -21,10 +23,10 @@ export default function Home() {
   const agentOptLastStep = useRef("");
   const agentOptDoneRef = useRef(false);
   const agentLearnAbortRef = useRef<AbortController | null>(null);
-  const [pendingDeleteCatalog, _setPendingDeleteCatalog] = useState<string | null>(null);
+  const [_pendingDeleteCatalog, _setPendingDeleteCatalog] = useState<string | null>(null);
   const pendingDeleteCatalogRef = useRef<string | null>(null);
   const setPendingDeleteCatalog = (v: string | null) => { pendingDeleteCatalogRef.current = v; _setPendingDeleteCatalog(v); };
-  const [pendingDeleteIncentiveSet, _setPendingDeleteIncentiveSet] = useState<string | null>(null);
+  const [_pendingDeleteIncentiveSet, _setPendingDeleteIncentiveSet] = useState<string | null>(null);
   const pendingDeleteIncentiveSetRef = useRef<string | null>(null);
   const setPendingDeleteIncentiveSet = (v: string | null) => { pendingDeleteIncentiveSetRef.current = v; _setPendingDeleteIncentiveSet(v); };
 
@@ -34,7 +36,7 @@ export default function Home() {
   const [gridCustomColumns, setGridCustomColumns] = useState<Array<{
     id: string;
     label: string;
-    expr: (r: any) => number;
+    expr: (r: Record<string, number>) => number;
     exprSource: string;          // human-readable formula
     format: "dollar" | "percent" | "ratio" | "number";
     totalsExpr?: "sum" | "avg" | "weighted";
@@ -53,12 +55,12 @@ export default function Home() {
 
   // Upload State
   const [file, setFile] = useState<File | null>(null);
-  const [customerId, setCustomerId] = useState("uploaded");
+  const [customerId, _setCustomerId] = useState("uploaded");
 
   // Common State
   const [loading, setLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState("");
-  const [results, setResults] = useState<any>(null);
+  const [_loadingStep, setLoadingStep] = useState("");
+  const [results, setResults] = useState<ApiRecord | null>(null);
   const [error, setError] = useState("");
 
   // Profile Generator State
@@ -71,32 +73,32 @@ export default function Home() {
   const [learnUploadName, setLearnUploadName] = useState("");
   const [learnUploadSubmitted, setLearnUploadSubmitted] = useState(false);
   const [pendingUploadedPortfolioName, setPendingUploadedPortfolioName] = useState("");
-  const [uploadedDatasets, setUploadedDatasets] = useState<any[]>([]);
+  const [uploadedDatasets, setUploadedDatasets] = useState<ApiRecord[]>([]);
   const [learnSourceAutoInitialized, setLearnSourceAutoInitialized] = useState(false);
   const [learnK, setLearnK] = useState(10);
-  const [catalog, setCatalog] = useState<any>(null);
-  const [catalogList, setCatalogList] = useState<any[]>([]);
+  const [catalog, setCatalog] = useState<ApiRecord | null>(null);
+  const [catalogList, setCatalogList] = useState<ApiRecord[]>([]);
   const [selectedCatalogVersion, setSelectedCatalogVersion] = useState("");
 
   // Optimization State
   const [optimizationId, setOptimizationId] = useState<string | null>(null);
-  const [optimizationState, setOptimizationState] = useState<any>(null);
+  const [optimizationState, setOptimizationState] = useState<ApiRecord | null>(null);
   const [optimizationPolling, setOptimizationPolling] = useState(false);
   const [optimizationStarting, setOptimizationStarting] = useState(false);
   const [optimizeInProgress, setOptimizeInProgress] = useState(false);
   const [optimizationStopPhase, setOptimizationStopPhase] = useState<"idle" | "cancelling" | "cleaning">("idle");
-  const [savedOptimizations, setSavedOptimizations] = useState<any[]>([]);
+  const [savedOptimizations, setSavedOptimizations] = useState<ApiRecord[]>([]);
   const [selectedSavedOptimizationId, setSelectedSavedOptimizationId] = useState<string | null>(null);
   const [showOptimizationProgress, setShowOptimizationProgress] = useState(false);
 
   // Incentive Set State
-  const [incentiveSets, setIncentiveSets] = useState<any[]>([]);
+  const [incentiveSets, setIncentiveSets] = useState<ApiRecord[]>([]);
   const [selectedIncentiveSetVersion, setSelectedIncentiveSetVersion] = useState("");
-  const [selectedIncentiveSetDetail, setSelectedIncentiveSetDetail] = useState<any>(null);
+  const [selectedIncentiveSetDetail, setSelectedIncentiveSetDetail] = useState<ApiRecord | null>(null);
   const [incentiveSetDetailLoading, setIncentiveSetDetailLoading] = useState(false);
-  const [workflows, setWorkflows] = useState<any[]>([]);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [activeWorkflow, setActiveWorkflow] = useState<{ id: string; name: string; description: string; detail: string } | null>(null);
-  const [pendingDeleteWorkflow, _setPendingDeleteWorkflow] = useState<string | null>(null);
+  const [_pendingDeleteWorkflow, _setPendingDeleteWorkflow] = useState<string | null>(null);
   const pendingDeleteWorkflowRef = useRef<string | null>(null);
   const setPendingDeleteWorkflow = (v: string | null) => { pendingDeleteWorkflowRef.current = v; _setPendingDeleteWorkflow(v); };
   // Multi-step workflow creation: awaiting_name → awaiting_description → awaiting_detail → create
@@ -109,7 +111,7 @@ export default function Home() {
   const pendingCreateWorkflowRef = useRef<typeof pendingCreateWorkflow>(null);
   const setPendingCreateWorkflow = (v: typeof pendingCreateWorkflow) => { pendingCreateWorkflowRef.current = v; _setPendingCreateWorkflow(v); };
   // Pending workflow selection for edit/delete: user picks a number from a listed set of custom workflows
-  const [pendingWorkflowAction, _setPendingWorkflowAction] = useState<{ action: "edit" | "delete"; candidates: any[] } | null>(null);
+  const [pendingWorkflowAction, _setPendingWorkflowAction] = useState<{ action: "edit" | "delete"; candidates: ApiRecord[] } | null>(null);
   const pendingWorkflowActionRef = useRef<typeof pendingWorkflowAction>(null);
   const setPendingWorkflowAction = (v: typeof pendingWorkflowAction) => { pendingWorkflowActionRef.current = v; _setPendingWorkflowAction(v); };
   // Multi-step edit workflow: name → description → detail → save
@@ -125,7 +127,7 @@ export default function Home() {
   const learnStopRequestedRef = useRef(false);
   const optimizationStartAbortRef = useRef<AbortController | null>(null);
   const optimizationStopRequestedRef = useRef(false);
-  const optimizationCacheRef = useRef<Record<string, any>>({});
+  const optimizationCacheRef = useRef<ApiRecord>({});
   const optimizationLatestByCatalogRef = useRef<Record<string, string>>({});
   const savedOptimizationsFetchSeqRef = useRef(0);
   const loadOptimizationFetchSeqRef = useRef(0);
@@ -152,7 +154,7 @@ export default function Home() {
     }
   }
 
-  const updateOptimizationCache = useCallback((optimizationData: any, persist = false) => {
+  const updateOptimizationCache = useCallback((optimizationData: ApiRecord, persist = false) => {
     const optimizationKey = String(optimizationData?.optimization_id || "");
     if (!optimizationKey) return;
     optimizationCacheRef.current[optimizationKey] = optimizationData;
@@ -275,9 +277,9 @@ export default function Home() {
       setLoadingStep("Matching credit cards...");
       const data = await res.json();
       setResults(data);
-    } catch (err: any) {
-      if (err?.name !== "AbortError") {
-        setError(err.message || "An error occurred");
+    } catch (err: unknown) {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setError(err instanceof Error ? err.message : "An error occurred");
       }
     } finally {
       setLoading(false);
@@ -309,9 +311,9 @@ export default function Home() {
       if (!res.ok) throw new Error("Failed to analyze transactions");
       const data = await res.json();
       setResults(data);
-    } catch (err: any) {
-      if (err?.name !== "AbortError") {
-        setError(err.message || "An error occurred");
+    } catch (err: unknown) {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setError(err instanceof Error ? err.message : "An error occurred");
       }
     } finally {
       setLoading(false);
@@ -411,10 +413,10 @@ export default function Home() {
       signal.addEventListener("abort", onAbort, { once: true });
     });
 
-  const postLearnProfilesWithRetry = async (body: any, controller: AbortController) => {
+  const postLearnProfilesWithRetry = async (body: ApiRecord, controller: AbortController) => {
     const maxAttempts = 6;
     let res: Response | null = null;
-    let lastNetworkError: any = null;
+    let lastNetworkError: unknown = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         res = await fetch(`${CLOUD_FUNCTION_URL}/learn_profiles`, {
@@ -423,8 +425,8 @@ export default function Home() {
           body: JSON.stringify(body),
           signal: controller.signal,
         });
-      } catch (err: any) {
-        if (err?.name === "AbortError") throw err;
+      } catch (err: unknown) {
+        if (err instanceof DOMException && err.name === "AbortError") throw err;
         lastNetworkError = err;
         if (attempt === maxAttempts) {
           throw err;
@@ -454,7 +456,7 @@ export default function Home() {
     let stopElapsedStatus: (() => void) | null = null;
     activeLearnStartedAtRef.current = new Date().toISOString();
     try {
-      let body: any = { source: learnSource, k: learnK };
+      let body: ApiRecord = { source: learnSource, k: learnK };
       let currentUploadName = "";
 
       if (learnSource === "uploaded") {
@@ -526,7 +528,7 @@ export default function Home() {
         setLearnStatus("Learning...");
       }
 
-      let data: any;
+      let data: ApiRecord;
       if (learnSource === "uploaded") {
         setPendingUploadedPortfolioName(currentUploadName);
         setLearnSource("uploaded-pending");
@@ -545,7 +547,7 @@ export default function Home() {
         if (!res.ok) {
           const raw = await res.text().catch(() => "");
           const looksLikeHtmlError = /<!doctype html|<html/i.test(raw);
-          let errData: any = {};
+          let errData: ApiRecord = {};
           if (!looksLikeHtmlError) {
             try { errData = raw ? JSON.parse(raw) : {}; } catch { /* ignore */ }
           }
@@ -571,7 +573,7 @@ export default function Home() {
         if (!res.ok) {
           const raw = await res.text().catch(() => "");
           const looksLikeHtmlError = /<!doctype html|<html/i.test(raw);
-          let errData: any = {};
+          let errData: ApiRecord = {};
           if (!looksLikeHtmlError) {
             try { errData = raw ? JSON.parse(raw) : {}; } catch { /* ignore */ }
           }
@@ -597,13 +599,13 @@ export default function Home() {
       setGeneratorTab("optimize");
       fetchCatalogList();
       fetchUploadedDatasets();
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (learnStopRequestedRef.current) {
         setGenError("");
-      } else if (err?.name === "AbortError") {
+      } else if (err instanceof DOMException && err.name === "AbortError") {
         setGenError("Learning request timed out after 9 minutes. Try a smaller file.");
       } else {
-        setGenError(err.message || "Learning failed");
+        setGenError(err instanceof Error ? err.message : "Learning failed");
       }
     } finally {
       if (stopElapsedStatus) stopElapsedStatus();
@@ -630,7 +632,7 @@ export default function Home() {
       const data = await res.json();
       const datasets = data.datasets || [];
       const startedMs = Date.parse(startedAt);
-      const candidates = datasets.filter((d: any) => {
+      const candidates = datasets.filter((d: ApiRecord) => {
         const sameName = String(d.upload_name || "").trim() === uploadName;
         const createdMs = Date.parse(String(d.created_at || ""));
         return sameName && Number.isFinite(createdMs) && createdMs >= (startedMs - 10000);
@@ -699,8 +701,8 @@ export default function Home() {
       }
 
       fetchCatalogList();
-    } catch (err: any) {
-      setGenError(err.message || "Failed to delete portfolio dataset");
+    } catch (err: unknown) {
+      setGenError(err instanceof Error ? err.message : "Failed to delete portfolio dataset");
     } finally {
       setGenLoading(false);
     }
@@ -720,7 +722,7 @@ export default function Home() {
         }
 
         const hasSelected = Boolean(
-          selectedCatalogVersion && catalogs.some((c: any) => c.version === selectedCatalogVersion)
+          selectedCatalogVersion && catalogs.some((c: ApiRecord) => c.version === selectedCatalogVersion)
         );
         if (!hasSelected) {
           const nextVersion = catalogs[0].version;
@@ -769,6 +771,7 @@ export default function Home() {
       fetchCatalogList();
       fetchUploadedDatasets();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView]);
 
   // Default to Upload source when no uploaded datasets are available
@@ -792,7 +795,7 @@ export default function Home() {
 
     if (learnSource.startsWith("uploaded-dataset:")) {
       const selectedId = learnSource.split(":", 2)[1] || "";
-      const exists = uploadedDatasets.some((d: any) => d.dataset_id === selectedId);
+      const exists = uploadedDatasets.some((d: ApiRecord) => d.dataset_id === selectedId);
       if (!exists) {
         setLearnSource(`uploaded-dataset:${firstDatasetId}`);
       }
@@ -826,6 +829,7 @@ export default function Home() {
     } else if (!activeWorkflow) {
       prevActiveWorkflowRef.current = null;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkflow, activeView]);
 
   // Optimize polling logic
@@ -896,7 +900,7 @@ export default function Home() {
             setOptimizeInProgress(false);
             agentOptLastStep.current = "";
             if (data.status === "completed") {
-              const totalLift = (data.results || []).reduce((s: number, r: any) => s + (r.lift || 0), 0);
+              const totalLift = (data.results || []).reduce((s: number, r: ApiRecord) => s + (Number(r.lift) || 0), 0);
               const profileCount = (data.results || []).length;
               setAgentChatMessages((prev) => {
                 const prog = prev.find((m) => m.id === "opt-progress");
@@ -942,6 +946,7 @@ export default function Home() {
     poll(); // Initial poll
     const interval = setInterval(poll, 800);
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [optimizationId, optimizationPolling, selectedCatalogVersion, updateOptimizationCache]);
 
   const startOptimization = async () => {
@@ -995,9 +1000,9 @@ export default function Home() {
       setOptimizationId(startedOptimizationId);
       setSelectedSavedOptimizationId(startedOptimizationId);
       setOptimizationPolling(true);
-    } catch (err: any) {
-      if (err?.name !== "AbortError") {
-        setGenError(err.message || "Failed to start optimization");
+    } catch (err: unknown) {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setGenError(err instanceof Error ? err.message : "Failed to start optimization");
       }
       setOptimizationStopPhase("idle");
       setOptimizeInProgress(false);
@@ -1044,7 +1049,7 @@ export default function Home() {
     }
   };
 
-  const saveOptimization = async () => {
+  const _saveOptimization = async () => {
     if (!optimizationId) return;
     try {
       const res = await fetch(`${CLOUD_FUNCTION_URL}/save_optimize/${optimizationId}`, { method: "POST" });
@@ -1085,7 +1090,7 @@ export default function Home() {
         // Auto-load the latest terminal optimization only.
         // Avoid auto-opening stale "running" entries on initial page entry.
         if (exps.length > 0) {
-          const preferred = exps.find((exp: any) =>
+          const preferred = exps.find((exp: ApiRecord) =>
             ["completed", "cancelled", "failed"].includes(String(exp.status || "").toLowerCase())
           );
           if (preferred?.optimization_id) {
@@ -1128,7 +1133,7 @@ export default function Home() {
         const sets = data.incentive_sets || [];
         setIncentiveSets(sets);
         // Auto-select the default, or the first one
-        const defaultSet = sets.find((s: any) => s.is_default);
+        const defaultSet = sets.find((s: ApiRecord) => s.is_default);
         if (defaultSet) {
           setSelectedIncentiveSetVersion(defaultSet.version);
         } else if (sets.length > 0 && !selectedIncentiveSetVersion) {
@@ -1167,7 +1172,6 @@ export default function Home() {
     if (activeView === "welcome" || (activeView === "generator" && generatorTab === "optimize")) {
       loadIncentiveSetDetail(selectedIncentiveSetVersion || undefined);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView, generatorTab, selectedIncentiveSetVersion]);
 
   const loadSavedOptimization = async (expId: string, options?: { refresh?: boolean }) => {
@@ -1235,7 +1239,7 @@ export default function Home() {
     try {
       const res = await fetch(`${CLOUD_FUNCTION_URL}/delete_catalog/${version}`, { method: "DELETE" });
       if (res.ok) {
-        const newList = catalogList.filter((c: any) => c.version !== version);
+        const newList = catalogList.filter((c: ApiRecord) => c.version !== version);
         setCatalogList(newList);
         if (selectedCatalogVersion === version) {
           const next = newList.length > 0 ? newList[0].version : "";
@@ -1295,8 +1299,8 @@ export default function Home() {
   };
 
   /** Build full optimization context sent to backend so the LLM can give specific, data-grounded answers */
-  const buildGridContext = (overrides?: { incentiveSetDetail?: any }) => {
-    const ctx: Record<string, any> = {
+  const buildGridContext = (overrides?: { incentiveSetDetail?: ApiRecord }) => {
+    const ctx: ApiRecord = {
       fields: GRID_FIELDS,
       custom_columns: gridCustomColumns.map((c) => ({ label: c.label, formula: c.exprSource, format: c.format })),
       has_results: Boolean(optimizationState?.results?.length),
@@ -1309,7 +1313,7 @@ export default function Home() {
         source: catalog.source,
         k: catalog.k,
         total_learning_population: catalog.total_learning_population,
-        profiles: (catalog.profiles || []).map((p: any) => ({
+        profiles: (((catalog as ApiRecord)?.profiles as ApiRecord[]) || []).map((p: ApiRecord) => ({
           profile_id: p.profile_id,
           label: p.label,
           description: p.description,
@@ -1326,11 +1330,11 @@ export default function Home() {
       ctx.incentive_set = {
         name: incDetail.name || incDetail.version,
         version: incDetail.version,
-        incentives: (incDetail.incentives || []).map((inc: any) => ({
+        incentives: (incDetail.incentives || []).map((inc: ApiRecord) => ({
           name: inc.name,
           estimated_annual_cost_per_user: inc.estimated_annual_cost_per_user,
           redemption_rate: inc.redemption_rate,
-          effective_cost: Math.round((inc.estimated_annual_cost_per_user || 0) * (inc.redemption_rate || 1)),
+          effective_cost: Math.round((Number(inc.estimated_annual_cost_per_user) || 0) * (Number(inc.redemption_rate) || 1)),
         })),
       };
     }
@@ -1344,7 +1348,7 @@ export default function Home() {
         patience: optimizationState.patience || 3,
         started_at: optimizationState.started_at,
         completed_at: optimizationState.completed_at,
-        results: (optimizationState.results || []).map((r: any) => ({
+        results: ((optimizationState.results as ApiRecord[]) || []).map((r: ApiRecord) => ({
           profile_id: r.profile_id,
           selected_incentives: r.selected_incentives,
           original_portfolio_ltv: r.original_portfolio_ltv,
@@ -1357,19 +1361,19 @@ export default function Home() {
     }
 
     // Available profiles (catalogs) — generated from clustering
-    ctx.available_profiles = catalogList.map((c: any) => ({
+    ctx.available_profiles = catalogList.map((c: ApiRecord) => ({
       version: c.version,
       source: c.source,
       k: c.k,
     }));
     // Uploaded portfolios (datasets) — raw transaction data uploaded by the user
-    ctx.uploaded_portfolios = (uploadedDatasets || []).map((d: any) => ({
+    ctx.uploaded_portfolios = (uploadedDatasets || []).map((d: ApiRecord) => ({
       dataset_id: d.dataset_id,
       name: d.upload_name,
       created_at: d.created_at,
     }));
     // Saved optimization programs for listing
-    ctx.saved_programs = (savedOptimizations || []).map((exp: any) => ({
+    ctx.saved_programs = (savedOptimizations || []).map((exp: ApiRecord) => ({
       optimization_id: exp.optimization_id,
       status: exp.status,
       profile_count: exp.result_count || 0,
@@ -1380,7 +1384,7 @@ export default function Home() {
       incentive_set_version: exp.incentive_set_version,
     }));
     // Available incentive sets
-    ctx.available_incentive_sets = (incentiveSets || []).map((s: any) => ({
+    ctx.available_incentive_sets = (incentiveSets || []).map((s: ApiRecord) => ({
       version: s.version,
       name: s.name || s.version,
       is_default: s.is_default || false,
@@ -1389,7 +1393,7 @@ export default function Home() {
     // Available workflows (built-in + user-created)
     ctx.available_workflows = [
       { workflow_id: "builtin-optimize-portfolio", name: "Optimize portfolio", description: "Learn behavioral profiles from transaction data using clustering, then derive optimal incentive program through simulation.", type: "built-in" },
-      ...(workflows || []).map((w: any) => ({
+      ...(workflows || []).map((w: ApiRecord) => ({
         workflow_id: w.workflow_id,
         name: w.name,
         description: w.description,
@@ -1411,7 +1415,7 @@ export default function Home() {
   };
 
   /** Try to compile a formula string from the backend into a safe row evaluator */
-  const compileFormula = (formula: string): ((r: any) => number) | null => {
+  const compileFormula = (formula: string): ((r: Record<string, number>) => number) | null => {
     // Only allow field names, numbers, operators, parens, whitespace
     const allowedFields = Object.keys(GRID_FIELDS);
     let expr = formula;
@@ -1422,8 +1426,7 @@ export default function Home() {
     const sanitized = expr.replace(/r\.\w+/g, "0").replace(/[0-9.+\-*/() \t]/g, "");
     if (sanitized.length > 0) return null;
     try {
-      // eslint-disable-next-line no-new-func
-      const fn = new Function("r", `"use strict"; const v = ${expr}; return typeof v === 'number' && isFinite(v) ? v : 0;`) as (r: any) => number;
+      const fn = new Function("r", `"use strict"; const v = ${expr}; return typeof v === 'number' && isFinite(v) ? v : 0;`) as (r: Record<string, number>) => number;
       fn({ original_portfolio_ltv: 1, new_gross_portfolio_ltv: 2, portfolio_cost: 1, lift: 0.5, new_net_portfolio_ltv: 1.5 });
       return fn;
     } catch {
@@ -1432,7 +1435,7 @@ export default function Home() {
   };
 
   /** Execute structured actions returned by the backend */
-  const executeAgentActions = async (actions: any[]) => {
+  const executeAgentActions = async (actions: ApiRecord[]) => {
     for (const action of actions) {
       if (action.type === "add_column") {
         const fn = compileFormula(action.formula || "");
@@ -1478,7 +1481,7 @@ export default function Home() {
           setLearnInProgress(true);
           const learnAbort = new AbortController();
           agentLearnAbortRef.current = learnAbort;
-          const body: any = { k, source: datasetId ? `uploaded-dataset:${datasetId}` : source };
+          const body: ApiRecord = { k, source: datasetId ? `uploaded-dataset:${datasetId}` : source };
           const res = await fetch(`${CLOUD_FUNCTION_URL}/learn_profiles`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1497,8 +1500,8 @@ export default function Home() {
             const errData = await res.json().catch(() => ({}));
             setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to create profile: ${errData.error || res.statusText}`, submittedAt: formatChatTimestamp(new Date()) }]);
           }
-        } catch (e: any) {
-          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error creating profile: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } catch (e: unknown) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error creating profile: ${e instanceof Error ? e.message : "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
         } finally {
           agentLearnAbortRef.current = null;
           setAgentChatLoading(false);
@@ -1592,8 +1595,8 @@ export default function Home() {
             const errData = await res.json().catch(() => ({}));
             setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to duplicate profile: ${errData.error || res.statusText}`, submittedAt: formatChatTimestamp(new Date()) }]);
           }
-        } catch (e: any) {
-          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error duplicating profile: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } catch (e: unknown) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error duplicating profile: ${e instanceof Error ? e.message : "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
         }
 
       } else if (action.type === "list_programs") {
@@ -1603,9 +1606,9 @@ export default function Home() {
         if (programs.length === 0) {
           listText = "No programs found for the current context.";
         } else {
-          const lines = programs.map((exp: any, i: number) => {
+          const lines = programs.map((exp: ApiRecord, i: number) => {
             const totalLift = exp.total_lift ?? (Array.isArray(exp.results)
-              ? exp.results.reduce((s: number, r: any) => s + (r.lift || 0), 0)
+              ? (exp.results as ApiRecord[]).reduce((s: number, r: ApiRecord) => s + (Number(r.lift) || 0), 0)
               : null);
             const profileCount = exp.result_count || (Array.isArray(exp.results) ? exp.results.length : 0);
             const date = exp.completed_at || exp.started_at || "";
@@ -1651,8 +1654,8 @@ export default function Home() {
             if (idx >= 0) { const copy = [...prev]; copy[idx] = { ...prev[idx], ...doneMsg }; return copy; }
             return [...prev, doneMsg];
           });
-        } catch (e: any) {
-          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to delete program: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } catch (e: unknown) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to delete program: ${e instanceof Error ? e.message : "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
         } finally {
           setAgentChatLoading(false);
         }
@@ -1707,10 +1710,10 @@ export default function Home() {
             }
             return [...copy, { id: "opt-progress", role: "agent" as const, text: "Starting optimization...", submittedAt: formatChatTimestamp(new Date()) }];
           });
-        } catch (e: any) {
+        } catch (e: unknown) {
           setOptimizeInProgress(false);
           setShowOptimizationProgress(false);
-          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to start optimization: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to start optimization: ${e instanceof Error ? e.message : "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
         } finally {
           setAgentChatLoading(false);
         }
@@ -1722,7 +1725,7 @@ export default function Home() {
         if (sets.length === 0) {
           listText = "No incentive sets found.";
         } else {
-          const lines = sets.map((s: any, i: number) => {
+          const lines = sets.map((s: ApiRecord, i: number) => {
             const defaultTag = s.is_default ? " (default)" : "";
             const count = s.incentive_count || 0;
             return `${i + 1}. ${s.name || s.version} · ${count} incentives${defaultTag}`;
@@ -1769,8 +1772,8 @@ export default function Home() {
             const errData = await res.json().catch(() => ({}));
             setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to create incentive set: ${errData.error || res.statusText}`, submittedAt: formatChatTimestamp(new Date()) }]);
           }
-        } catch (e: any) {
-          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error creating incentive set: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } catch (e: unknown) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error creating incentive set: ${e instanceof Error ? e.message : "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
         } finally {
           setAgentChatLoading(false);
         }
@@ -1781,7 +1784,7 @@ export default function Home() {
         if (!version) continue;
         try {
           setAgentChatLoading(true);
-          const body: any = {};
+          const body: ApiRecord = {};
           if (action.name !== undefined) body.name = action.name;
           if (action.description !== undefined) body.description = action.description;
           if (action.incentives !== undefined) body.incentives = action.incentives;
@@ -1805,8 +1808,8 @@ export default function Home() {
               setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to update incentive set: ${errMsg}`, submittedAt: formatChatTimestamp(new Date()) }]);
             }
           }
-        } catch (e: any) {
-          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error updating incentive set: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } catch (e: unknown) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error updating incentive set: ${e instanceof Error ? e.message : "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
         } finally {
           setAgentChatLoading(false);
         }
@@ -1824,7 +1827,7 @@ export default function Home() {
             if (count > 0) {
               // Store count for the confirmation message
               setPendingDeleteIncentiveSet(version);
-              const setName = incentiveSets.find((s: any) => s.version === version)?.name || version.slice(0, 12);
+              const setName = incentiveSets.find((s: ApiRecord) => s.version === version)?.name || version.slice(0, 12);
               setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `⚠ Are you sure you want to delete incentive set "${setName}"? This will also permanently delete ${count} incentive program(s) that were generated from it. Reply yes to confirm or no to cancel.`, submittedAt: formatChatTimestamp(new Date()) }]);
               continue;
             }
@@ -1890,8 +1893,8 @@ export default function Home() {
             const errData = await res.json().catch(() => ({}));
             setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to set default: ${errData.error || res.statusText}`, submittedAt: formatChatTimestamp(new Date()) }]);
           }
-        } catch (e: any) {
-          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error setting default: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } catch (e: unknown) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error setting default: ${e instanceof Error ? e.message : "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
         } finally {
           setAgentChatLoading(false);
         }
@@ -1906,9 +1909,9 @@ export default function Home() {
           // Merge built-in workflow(s) with user-created ones
           const allWfs = [
             { name: "Optimize portfolio", description: "Learn behavioral profiles from transaction data using clustering, then derive optimal incentive program through simulation.", type: "built-in" },
-            ...userWfs.map((w: any) => ({ ...w, type: "custom" })),
+            ...userWfs.map((w: ApiRecord) => ({ ...w, type: "custom" })),
           ];
-          const lines = allWfs.map((w: any, i: number) => {
+          const lines = allWfs.map((w: ApiRecord, i: number) => {
             const tag = w.type === "built-in" ? "built-in" : "custom";
             const date = w.created_at ? new Date(w.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
             return `${i + 1}. ${w.name} — ${w.description || "(no description)"} [${tag}]${date ? ` · ${date}` : ""}`;
@@ -1948,8 +1951,8 @@ export default function Home() {
             const errData = await res.json().catch(() => ({}));
             setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to create workflow: ${errData.error || res.statusText}`, submittedAt: formatChatTimestamp(new Date()) }]);
           }
-        } catch (e: any) {
-          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error creating workflow: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } catch (e: unknown) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error creating workflow: ${e instanceof Error ? e.message : "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
         } finally {
           setAgentChatLoading(false);
         }
@@ -1963,7 +1966,7 @@ export default function Home() {
         }
         try {
           setAgentChatLoading(true);
-          const body: any = {};
+          const body: ApiRecord = {};
           if (action.name) body.name = action.name;
           if (action.description !== undefined) body.description = action.description;
           if (action.detail !== undefined) body.detail = action.detail;
@@ -1979,8 +1982,8 @@ export default function Home() {
             const errData = await res.json().catch(() => ({}));
             setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to update workflow: ${errData.error || res.statusText}`, submittedAt: formatChatTimestamp(new Date()) }]);
           }
-        } catch (e: any) {
-          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error updating workflow: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } catch (e: unknown) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error updating workflow: ${e instanceof Error ? e.message : "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
         } finally {
           setAgentChatLoading(false);
         }
@@ -2169,7 +2172,7 @@ export default function Home() {
       if (pe.step === "awaiting_detail") {
         const newDetail = skip ? undefined : next.trim();
         setPendingEditWorkflow(null);
-        const body: any = {};
+        const body: ApiRecord = {};
         if (pe.name !== undefined) body.name = pe.name;
         if (pe.description !== undefined) body.description = pe.description;
         if (newDetail !== undefined) body.detail = newDetail;
@@ -2197,7 +2200,7 @@ export default function Home() {
     const WORKFLOW_EDIT_N_RE = /^(edit|update|modify|rename)\s+(\d+)$/i;
     const editMatch = next.match(WORKFLOW_EDIT_RE) || next.match(WORKFLOW_EDIT_N_RE);
     if (editMatch) {
-      const customWfs = workflows.filter((w: any) => w.workflow_id && !w.workflow_id.startsWith("builtin-"));
+      const customWfs = workflows.filter((w: ApiRecord) => w.workflow_id && !(w.workflow_id as string).startsWith("builtin-"));
       if (customWfs.length === 0) {
         setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: "No custom workflows to edit. Create one first.", submittedAt: formatChatTimestamp(new Date()) }]);
         return;
@@ -2214,7 +2217,7 @@ export default function Home() {
       }
       // No number or out of range — show list
       setPendingWorkflowAction({ action: "edit", candidates: customWfs });
-      const lines = customWfs.map((w: any, i: number) => `${i + 1}. ${w.name}${w.description ? ` — ${w.description}` : ""}`);
+      const lines = customWfs.map((w: ApiRecord, i: number) => `${i + 1}. ${w.name}${w.description ? ` — ${w.description}` : ""}`);
       setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Which workflow to edit?\n\n${lines.join("\n")}`, submittedAt: formatChatTimestamp(new Date()) }]);
       return;
     }
@@ -2224,7 +2227,7 @@ export default function Home() {
     const WORKFLOW_DELETE_N_RE = /^(delete|remove)\s+(\d+)$/i;
     const deleteMatch = next.match(WORKFLOW_DELETE_RE) || next.match(WORKFLOW_DELETE_N_RE);
     if (deleteMatch) {
-      const customWfs = workflows.filter((w: any) => w.workflow_id && !w.workflow_id.startsWith("builtin-"));
+      const customWfs = workflows.filter((w: ApiRecord) => w.workflow_id && !(w.workflow_id as string).startsWith("builtin-"));
       if (customWfs.length === 0) {
         setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: "No custom workflows to delete.", submittedAt: formatChatTimestamp(new Date()) }]);
         return;
@@ -2238,7 +2241,7 @@ export default function Home() {
         return;
       }
       setPendingWorkflowAction({ action: "delete", candidates: customWfs });
-      const lines = customWfs.map((w: any, i: number) => `${i + 1}. ${w.name}${w.description ? ` — ${w.description}` : ""}`);
+      const lines = customWfs.map((w: ApiRecord, i: number) => `${i + 1}. ${w.name}${w.description ? ` — ${w.description}` : ""}`);
       setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Which workflow to delete?\n\n${lines.join("\n")}`, submittedAt: formatChatTimestamp(new Date()) }]);
       return;
     }
@@ -2262,9 +2265,9 @@ export default function Home() {
     }
 
     // Ensure incentive set detail is loaded so the LLM has full incentive data for analysis
-    let freshIncentiveSetDetail: any = null;
+    let freshIncentiveSetDetail: ApiRecord | null = null;
     if (!selectedIncentiveSetDetail && (selectedIncentiveSetVersion || incentiveSets.length > 0)) {
-      const versionToLoad = selectedIncentiveSetVersion || incentiveSets.find((s: any) => s.is_default)?.version || incentiveSets[0]?.version;
+      const versionToLoad = selectedIncentiveSetVersion || incentiveSets.find((s: ApiRecord) => s.is_default)?.version || incentiveSets[0]?.version;
       if (versionToLoad) {
         try {
           const url = `${CLOUD_FUNCTION_URL}/incentive_set/${versionToLoad}`;
@@ -2280,7 +2283,7 @@ export default function Home() {
     // Route to backend with grid context
     setAgentChatLoading(true);
     try {
-      const body: Record<string, any> = { message: next };
+      const body: ApiRecord = { message: next };
       // Always include grid context so the LLM can manage profiles, manipulate the grid, etc.
       body.grid_context = buildGridContext(freshIncentiveSetDetail ? { incentiveSetDetail: freshIncentiveSetDetail } : undefined);
       // Send recent conversation history for follow-up context (last 20 messages)
@@ -2431,7 +2434,7 @@ export default function Home() {
               />
             )}
 
-            {activeView === "dataroom" && <DataroomCanvas datasets={uploadedDatasets} />}
+            {activeView === "dataroom" && <DataroomCanvas datasets={uploadedDatasets as { dataset_id: string; upload_name?: string; row_count?: number; parsed_user_count?: number; created_at?: string }[]} />}
 
             {activeView === "profiler" && (
               <div className="p-3 md:p-4">
@@ -2674,7 +2677,7 @@ export default function Home() {
                       <label className="text-[10px] tracking-wider font-semibold" style={{ color: C.muted }}>Incentive Set</label>
                       <Dropdown
                         value={selectedIncentiveSetVersion || ""}
-                        options={incentiveSets.map((s: any) => ({
+                        options={incentiveSets.map((s: ApiRecord) => ({
                           value: s.version,
                           label: `${s.name || s.version} (${s.incentive_count} incentives)${s.is_default ? " *" : ""}`,
                         }))}
@@ -2703,7 +2706,7 @@ export default function Home() {
                         <p className="text-xs px-4 py-3" style={{ color: C.muted }}>No incentives in this set.</p>
                       ) : (
                         <div className="px-4 py-3 flex flex-wrap gap-1.5">
-                          {(selectedIncentiveSetDetail.incentives || []).map((inc: any, idx: number) => (
+                          {(selectedIncentiveSetDetail.incentives || []).map((inc: ApiRecord, idx: number) => (
                             <span
                               key={idx}
                               className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border"
@@ -2734,17 +2737,17 @@ export default function Home() {
                       <div className="flex items-center gap-2">
                         <Dropdown
                           value={learnSource}
-                          options={uploadedDatasets.map((d: any) => ({
+                          options={uploadedDatasets.map((d: ApiRecord) => ({
                             value: `uploaded-dataset:${d.dataset_id}`,
                             label: `${d.upload_name || d.dataset_id} (${d.row_count || 0} rows)`,
                           }))}
                           onChange={(val) => {
                             setLearnSource(val);
                             const newDatasetId = val.startsWith("uploaded-dataset:") ? val.replace("uploaded-dataset:", "") : "";
-                            const newDataset = uploadedDatasets.find((d: any) => d.dataset_id === newDatasetId);
+                            const newDataset = uploadedDatasets.find((d: ApiRecord) => d.dataset_id === newDatasetId);
                             const newName = newDataset?.upload_name || newDatasetId;
                             const newRowCount = Number(newDataset?.row_count ?? 0);
-                            const hasCatalogs = newRowCount > 0 && catalogList.some((c: any) => String(c.source || "").toLowerCase().includes(newName.toLowerCase()));
+                            const hasCatalogs = newRowCount > 0 && catalogList.some((c: ApiRecord) => String(c.source || "").toLowerCase().includes(newName.toLowerCase()));
                             if (hasCatalogs && selectedCatalogVersion) {
                               fetchSavedOptimizations(selectedCatalogVersion);
                             } else {
@@ -2761,10 +2764,10 @@ export default function Home() {
                       <label className="text-[10px] tracking-wider font-semibold" style={{ color: C.muted }}>Profile</label>
                       {(() => {
                         const selectedDatasetId = learnSource.startsWith("uploaded-dataset:") ? learnSource.replace("uploaded-dataset:", "") : "";
-                        const selectedDataset = uploadedDatasets.find((d: any) => d.dataset_id === selectedDatasetId);
+                        const selectedDataset = uploadedDatasets.find((d: ApiRecord) => d.dataset_id === selectedDatasetId);
                         const portfolioName = selectedDataset?.upload_name || selectedDatasetId;
                         const portfolioRowCount = Number(selectedDataset?.row_count ?? 0);
-                        const filtered = portfolioRowCount === 0 ? [] : catalogList.filter((c: any) => {
+                        const filtered = portfolioRowCount === 0 ? [] : catalogList.filter((c: ApiRecord) => {
                           if (!portfolioName) return true;
                           const src = String(c.source || "").toLowerCase();
                           return src.includes(portfolioName.toLowerCase());
@@ -2774,7 +2777,7 @@ export default function Home() {
                             <div className="flex items-center gap-2">
                               <Dropdown
                                 value={selectedCatalogVersion}
-                                options={filtered.map((c: any) => ({
+                                options={filtered.map((c: ApiRecord) => ({
                                   value: c.version,
                                   label: `${c.version} (${c.profile_count} profiles)`,
                                 }))}
@@ -2813,7 +2816,7 @@ export default function Home() {
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {catalog.profiles.map((p: any) => (
+                                    {catalog.profiles.map((p: ApiRecord) => (
                                       <tr key={p.profile_id} style={{ borderBottom: `1px solid ${C.border}` }}>
                                         <td className="py-2 px-3" style={{ color: C.muted }}>
                                           <ChevronRight className="h-3 w-3" />
@@ -2845,7 +2848,7 @@ export default function Home() {
                                       </td>
                                       <td className="py-3 pr-4 text-right font-mono font-bold" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>
                                         {(() => {
-                                          const total = catalog.profiles.reduce((s: number, p: any) => s + (p.portfolio_ltv || 0), 0);
+                                          const total = catalog.profiles.reduce((s: number, p: ApiRecord) => s + (p.portfolio_ltv || 0), 0);
                                           return `${total < 0 ? '-' : ''}$${Math.abs(total).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
                                         })()}
                                       </td>
@@ -2866,7 +2869,7 @@ export default function Home() {
                       <div className="flex items-center gap-2">
                         <Dropdown
                           value={selectedIncentiveSetVersion || optimizationState?.incentive_set_version || ""}
-                          options={incentiveSets.map((s: any) => ({
+                          options={incentiveSets.map((s: ApiRecord) => ({
                             value: s.version,
                             label: `${s.name || s.version} (${s.incentive_count} incentives)${s.is_default ? " *" : ""}`,
                           }))}
@@ -2903,7 +2906,7 @@ export default function Home() {
                               <p className="text-xs" style={{ color: C.muted }}>No incentives loaded.</p>
                             ) : (
                               <div className="flex flex-wrap gap-1.5">
-                                {(selectedIncentiveSetDetail.incentives || []).map((inc: any, idx: number) => (
+                                {(selectedIncentiveSetDetail.incentives || []).map((inc: ApiRecord, idx: number) => (
                                   <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border" style={{ borderColor: C.border, background: "white", color: "black" }}>
                                     {inc.name}
                                     <span style={{ color: C.muted }}>
@@ -2940,7 +2943,7 @@ export default function Home() {
                           </tr>
                         </thead>
                         <tbody>
-                          {optimizationState.results.map((r: any) => (
+                          {optimizationState.results.map((r: ApiRecord) => (
                             <tr key={r.profile_id} style={{ borderBottom: `1px solid ${C.border}` }}>
                               <td className="py-3 pr-4 font-semibold" style={{ color: C.text }}>{r.profile_id}</td>
                               <td className="py-3 pr-4">
@@ -2982,23 +2985,23 @@ export default function Home() {
                               <span className="text-[10px] tracking-wider font-bold" style={{ color: C.muted }}>Maximized Total Portfolio</span>
                             </td>
                             <td className="py-4 pr-4 text-right font-mono font-bold" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>
-                              {`$${Math.round(optimizationState.results.reduce((s: number, r: any) => s + (r.original_portfolio_ltv || 0), 0)).toLocaleString('en-US')}`}
+                              {`$${Math.round(optimizationState.results.reduce((s: number, r: ApiRecord) => s + (r.original_portfolio_ltv || 0), 0)).toLocaleString('en-US')}`}
                             </td>
                             <td className="py-4 pr-4 text-right font-mono" style={{ color: C.textSec, borderTop: `1px solid ${C.border}` }}>
-                              {`$${Math.round(optimizationState.results.reduce((s: number, r: any) => s + (r.new_gross_portfolio_ltv || 0), 0)).toLocaleString('en-US')}`}
+                              {`$${Math.round(optimizationState.results.reduce((s: number, r: ApiRecord) => s + (r.new_gross_portfolio_ltv || 0), 0)).toLocaleString('en-US')}`}
                             </td>
                             <td className="py-4 pr-4 text-right font-mono" style={{ color: C.textSec, borderTop: `1px solid ${C.border}` }}>
-                              {`-$${Math.round(optimizationState.results.reduce((s: number, r: any) => s + (r.portfolio_cost || 0), 0)).toLocaleString('en-US')}`}
+                              {`-$${Math.round(optimizationState.results.reduce((s: number, r: ApiRecord) => s + (r.portfolio_cost || 0), 0)).toLocaleString('en-US')}`}
                             </td>
                             <td className="py-4 pr-4 text-right font-mono font-bold" style={{ color: C.textSec, borderTop: `1px solid ${C.border}` }}>
-                              {`+$${Math.round(optimizationState.results.reduce((s: number, r: any) => s + (r.lift || 0), 0)).toLocaleString('en-US')}`}
+                              {`+$${Math.round(optimizationState.results.reduce((s: number, r: ApiRecord) => s + (r.lift || 0), 0)).toLocaleString('en-US')}`}
                             </td>
                             <td className="py-4 pr-4 text-right font-mono font-bold" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>
-                              {`$${Math.round(optimizationState.results.reduce((s: number, r: any) => s + (r.new_net_portfolio_ltv || 0), 0)).toLocaleString('en-US')}`}
+                              {`$${Math.round(optimizationState.results.reduce((s: number, r: ApiRecord) => s + (r.new_net_portfolio_ltv || 0), 0)).toLocaleString('en-US')}`}
                             </td>
                             {gridCustomColumns.map((col) => {
-                              const results = optimizationState.results as any[];
-                              const vals = results.map((r: any) => col.expr(r));
+                              const results = optimizationState.results as ApiRecord[];
+                              const vals = results.map((r: ApiRecord) => col.expr(r));
                               const agg = col.totalsExpr === "avg"
                                 ? vals.reduce((s, v) => s + v, 0) / (vals.length || 1)
                                 : vals.reduce((s, v) => s + v, 0);
@@ -3034,6 +3037,7 @@ export default function Home() {
                         <div className="flex-1" />
                         {agentChatMessages.length === 0 ? (
                           <div className="mb-0.5 flex items-center gap-2.5">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src="/linex-icon.svg" alt="Agent" className="h-[14px] w-[14px] shrink-0" />
                             <h2 className="text-sm leading-tight text-[#3bb266]">
                               {typedWelcomeLine}
@@ -3158,13 +3162,13 @@ export default function Home() {
 function ProfileGeneratorView({
   genLoading, genError, learnStatus, learnInProgress, generatorTab, setGeneratorTab,
   learnSource, setLearnSource, learnUploadName, setLearnUploadName, learnUploadFile, setLearnUploadFile, learnUploadSubmitted, setLearnUploadSubmitted, pendingUploadedPortfolioName, setPendingUploadedPortfolioName, uploadedDatasets, deleteSelectedPortfolio, learnK, setLearnK, learnProfiles, stopLearnProcess,
-  catalog, catalogList, selectedCatalogVersion, setSelectedCatalogVersion, loadCatalog,
+  catalog: _catalog, catalogList, selectedCatalogVersion, setSelectedCatalogVersion, loadCatalog: _loadCatalog,
   startOptimization, stopOptimization, deleteOptimization, deleteCatalog,
-  optimizationState, optimizationStarting, optimizeInProgress, optimizationStopPhase, showOptimizationProgress,
+  optimizationState, optimizationStarting: _optimizationStarting, optimizeInProgress, optimizationStopPhase, showOptimizationProgress,
   savedOptimizations, selectedSavedOptimizationId, loadSavedOptimization, fetchSavedOptimizations,
   incentiveSets, selectedIncentiveSetVersion, setSelectedIncentiveSetVersion, selectedIncentiveSetDetail, incentiveSetDetailLoading,
   gridCustomColumns, formatCustomColValue,
-}: any) {
+}: ApiRecord) {
   const [showIncentiveSetIncentives, setShowIncentiveSetIncentives] = useState(false);
   const [showDecisionSteps, setShowDecisionSteps] = useState(false);
   const [optimizeInitElapsedSec, setOptimizeInitElapsedSec] = useState(0);
@@ -3172,7 +3176,7 @@ function ProfileGeneratorView({
   const isOptimizeActive = Boolean(optimizeInProgress);
   const showOptimizeStatusMessage = showOptimizationProgress && (isOptimizeActive || optimizationState || optimizationStopPhase !== "idle");
   const isGeneratorLocked = isLearnActive || isOptimizeActive;
-  const selectedSetMeta = incentiveSets.find((s: any) => s.version === selectedIncentiveSetVersion);
+  const selectedSetMeta = incentiveSets.find((s: ApiRecord) => s.version === selectedIncentiveSetVersion);
   const detailMatchesSelection = selectedIncentiveSetDetail
     && (!selectedIncentiveSetVersion || selectedIncentiveSetDetail.version === selectedIncentiveSetVersion);
   const incentiveSetTitle = selectedIncentiveSetDetail?.name
@@ -3184,14 +3188,17 @@ function ProfileGeneratorView({
     : [];
   useEffect(() => {
     if (!isOptimizeActive || optimizationState) {
-      setOptimizeInitElapsedSec(0);
       return;
     }
     const startedAt = Date.now();
     const timer = setInterval(() => {
       setOptimizeInitElapsedSec(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
     }, 1000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      // Reset elapsed counter asynchronously on cleanup to avoid cascading renders
+      queueMicrotask(() => setOptimizeInitElapsedSec(0));
+    };
   }, [isOptimizeActive, optimizationState]);
   const onTrainFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0]) return;
@@ -3217,7 +3224,7 @@ function ProfileGeneratorView({
       </>
     );
   };
-  const renderOptimizationStatus = (state: any) => {
+  const renderOptimizationStatus = (state: ApiRecord) => {
     if (!state || state.status !== "running") {
       return (
         <>
@@ -3250,7 +3257,7 @@ function ProfileGeneratorView({
       </>
     );
   };
-  const formatProgramName = (program: any) => {
+  const formatProgramName = (program: ApiRecord) => {
     const stamp = program?.completed_at || program?.started_at;
     if (!stamp) return "";
     const when = new Date(stamp).toLocaleString();
@@ -3261,13 +3268,13 @@ function ProfileGeneratorView({
     return `${when} — ${status} (${countText})`;
   };
   const programOptions = useMemo(() => {
-    const base = (savedOptimizations || []).map((exp: any) => ({
+    const base = (savedOptimizations || []).map((exp: ApiRecord) => ({
       optimization_id: String(exp.optimization_id || ""),
       label: formatProgramName(exp),
-    })).filter((exp: any) => Boolean(exp.optimization_id));
+    })).filter((exp: ApiRecord) => Boolean(exp.optimization_id));
 
     const selectedId = String(selectedSavedOptimizationId || "");
-    if (!selectedId || base.some((exp: any) => exp.optimization_id === selectedId)) {
+    if (!selectedId || base.some((exp: ApiRecord) => exp.optimization_id === selectedId)) {
       return base;
     }
 
@@ -3291,14 +3298,14 @@ function ProfileGeneratorView({
     if (status === "blocked") return "bg-[#ffb347]/10 text-[#ffb347] border-[#ffb347]/30";
     return "bg-[#141a18] text-[#7a8680] border-[#2e3432]";
   };
-  const renderOptimizationDecisionSteps = (state: any) => {
+  const renderOptimizationDecisionSteps = (state: ApiRecord) => {
     const status = String(state?.status || "");
     const isRunning = status === "running";
     const isFinished = status === "completed" || status === "cancelled";
     const isFailed = status === "failed";
     const hasAnyData = Boolean(state);
     const hasPilotData = Array.isArray(state?.available_incentives)
-      && state.available_incentives.some((inc: any) => Number(inc?.uptake_observed_trials || 0) > 0);
+      && state.available_incentives.some((inc: ApiRecord) => Number(inc?.uptake_observed_trials || 0) > 0);
     const steps: { name: string; detail: string; status: "pending" | "running" | "done" | "skipped" | "blocked" }[] = [
       {
         name: "1. Start Optimization",
@@ -3419,7 +3426,7 @@ function ProfileGeneratorView({
                       }}
                       className="rounded-md border border-[#2e3432] px-3 py-2 text-sm bg-[#141a18] text-[#edf3ef] w-full"
                     >
-                      {uploadedDatasets.map((d: any) => (
+                      {uploadedDatasets.map((d: ApiRecord) => (
                         <option key={d.dataset_id} value={`uploaded-dataset:${d.dataset_id}`}>
                           {d.upload_name || d.dataset_id} ({d.row_count || 0} rows)
                         </option>
@@ -3523,6 +3530,7 @@ function ProfileGeneratorView({
                 </button>
                 {isLearnActive && (
                   <span className="text-sm text-[#b4c0b8] flex items-center gap-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src="/linex-animated.svg" alt="Linex" className="h-5 w-5 shrink-0" />
                     <span>{renderLearnStatus(learnStatus || "Working...")}</span>
                   </span>
@@ -3544,7 +3552,7 @@ function ProfileGeneratorView({
                     onChange={(e) => { setSelectedCatalogVersion(e.target.value); fetchSavedOptimizations(e.target.value); }}
                     className="rounded-md border px-3 py-2 text-sm bg-white w-full sm:max-w-[640px]"
                   >
-                    {catalogList.map((c: any) => (
+                    {catalogList.map((c: ApiRecord) => (
                       <option key={c.version} value={c.version}>
                         {c.version} ({c.profile_count} profiles)
                       </option>
@@ -3570,7 +3578,7 @@ function ProfileGeneratorView({
                     onChange={(e) => setSelectedIncentiveSetVersion(e.target.value)}
                     className="rounded-md border px-3 py-2 text-sm bg-white w-full sm:max-w-[640px]"
                   >
-                    {incentiveSets.map((s: any) => (
+                    {incentiveSets.map((s: ApiRecord) => (
                       <option key={s.version} value={s.version}>
                         {s.name || s.version} ({s.incentive_count} incentives){s.is_default ? " *" : ""}
                       </option>
@@ -3601,7 +3609,7 @@ function ProfileGeneratorView({
                       <p className="text-xs text-slate-500">No incentives loaded for this set.</p>
                     ) : (
                       <div className="flex flex-wrap gap-1.5">
-                        {incentivesForDisplay.map((inc: any, idx: number) => (
+                        {incentivesForDisplay.map((inc: ApiRecord, idx: number) => (
                           <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-slate-200 text-[11px] text-black font-medium">
                             {inc.name}
                             <span className="text-slate-300">
@@ -3626,7 +3634,7 @@ function ProfileGeneratorView({
                     }}
                     className="rounded-md border px-3 py-2 text-sm bg-white w-full sm:max-w-[640px]"
                   >
-                    {programOptions.map((program: any) => (
+                    {programOptions.map((program: ApiRecord) => (
                       <option key={program.optimization_id} value={program.optimization_id}>
                         {program.label}
                       </option>
@@ -3688,6 +3696,7 @@ function ProfileGeneratorView({
                     )}
                     {showOptimizeStatusMessage && (
                       <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto max-w-full sm:max-w-[520px] flex items-center gap-2">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src="/linex-animated.svg" alt="Linex" className="h-5 w-5 shrink-0" />
                         <div className="min-w-0 text-sm text-slate-700 truncate">
                           {optimizationStopPhase === "cancelling" ? (
@@ -3742,13 +3751,13 @@ function ProfileGeneratorView({
                                     <th className="py-2 pr-4 font-medium text-right">Cost</th>
                                     <th className="py-2 pr-4 font-medium text-right">Lift</th>
                                     <th className="py-2 pr-4 font-bold text-right">Final LTV</th>
-                                    {(gridCustomColumns || []).map((col: any) => (
+                                    {(gridCustomColumns || []).map((col: ApiRecord) => (
                                       <th key={col.id} className="py-2 pr-4 font-medium text-right text-[#00aaff]">{col.label}</th>
                                     ))}
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {optimizationState.results.map((r: any) => (
+                                  {optimizationState.results.map((r: ApiRecord) => (
                                     <tr key={r.profile_id} className="border-b border-slate-100">
                                       <td className="py-3 pr-4 font-semibold text-slate-900">{r.profile_id}</td>
                                       <td className="py-3 pr-4 text-slate-700">
@@ -3775,7 +3784,7 @@ function ProfileGeneratorView({
                                       <td className="py-3 pr-4 text-right font-mono text-slate-900 font-bold">
                                         {`$${Math.round(r.new_net_portfolio_ltv).toLocaleString('en-US')}`}
                                       </td>
-                                      {(gridCustomColumns || []).map((col: any) => (
+                                      {(gridCustomColumns || []).map((col: ApiRecord) => (
                                         <td key={col.id} className="py-3 pr-4 text-right font-mono text-[#00aaff]">
                                           {formatCustomColValue(col.expr(r), col.format)}
                                         </td>
@@ -3788,37 +3797,37 @@ function ProfileGeneratorView({
                                     </td>
                                     <td className="py-4 pr-4 text-right font-mono text-slate-900 font-bold border-t border-slate-200">
                                       {(() => {
-                                        const totalOrig = optimizationState.results.reduce((sum: number, r: any) => sum + (r.original_portfolio_ltv || 0), 0);
+                                        const totalOrig = optimizationState.results.reduce((sum: number, r: ApiRecord) => sum + (r.original_portfolio_ltv || 0), 0);
                                         return `$${Math.round(totalOrig).toLocaleString('en-US')}`;
                                       })()}
                                     </td>
                                     <td className="py-4 pr-4 text-right font-mono text-slate-700 border-t border-slate-200">
                                       {(() => {
-                                        const totalGross = optimizationState.results.reduce((sum: number, r: any) => sum + (r.new_gross_portfolio_ltv || 0), 0);
+                                        const totalGross = optimizationState.results.reduce((sum: number, r: ApiRecord) => sum + (r.new_gross_portfolio_ltv || 0), 0);
                                         return `$${Math.round(totalGross).toLocaleString('en-US')}`;
                                       })()}
                                     </td>
                                     <td className="py-4 pr-4 text-right font-mono text-slate-700 border-t border-slate-200">
                                       {(() => {
-                                        const totalCost = optimizationState.results.reduce((sum: number, r: any) => sum + (r.portfolio_cost || 0), 0);
+                                        const totalCost = optimizationState.results.reduce((sum: number, r: ApiRecord) => sum + (r.portfolio_cost || 0), 0);
                                         return `-$${Math.round(totalCost).toLocaleString('en-US')}`;
                                       })()}
                                     </td>
                                     <td className="py-4 pr-4 text-right font-mono text-slate-700 font-bold border-t border-slate-200">
                                       {(() => {
-                                        const totalLift = optimizationState.results.reduce((sum: number, r: any) => sum + (r.lift || 0), 0);
+                                        const totalLift = optimizationState.results.reduce((sum: number, r: ApiRecord) => sum + (r.lift || 0), 0);
                                         return `+$${Math.round(totalLift).toLocaleString('en-US')}`;
                                       })()}
                                     </td>
                                     <td className="py-4 pr-4 text-right font-mono text-slate-900 font-bold border-t border-slate-200">
                                       {(() => {
-                                        const totalNet = optimizationState.results.reduce((sum: number, r: any) => sum + (r.new_net_portfolio_ltv || 0), 0);
+                                        const totalNet = optimizationState.results.reduce((sum: number, r: ApiRecord) => sum + (r.new_net_portfolio_ltv || 0), 0);
                                         return `$${Math.round(totalNet).toLocaleString('en-US')}`;
                                       })()}
                                     </td>
-                                    {(gridCustomColumns || []).map((col: any) => {
-                                      const results = optimizationState.results as any[];
-                                      const vals = results.map((r: any) => col.expr(r));
+                                    {(gridCustomColumns || []).map((col: ApiRecord) => {
+                                      const results = optimizationState.results as ApiRecord[];
+                                      const vals = results.map((r: ApiRecord) => col.expr(r));
                                       const agg = col.totalsExpr === "avg"
                                         ? vals.reduce((s: number, v: number) => s + v, 0) / (vals.length || 1)
                                         : vals.reduce((s: number, v: number) => s + v, 0);
@@ -3852,14 +3861,14 @@ function ProfileGeneratorView({
 // ========================================================
 // Helpers
 // ========================================================
-const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8", "#82ca9d"];
-const PROFILE_COLORS = [
+const _COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8", "#82ca9d"];
+const _PROFILE_COLORS = [
   "#1e293b", "#334155", "#475569", "#64748b", "#94a3b8",
   "#0ea5e9", "#14b8a6", "#f59e0b", "#ef4444", "#8b5cf6",
   "#ec4899", "#22c55e", "#a855f7", "#f97316", "#06b6d4",
 ];
 
-function MetricCard({ title, value }: { title: string; value: string | number }) {
+function _MetricCard({ title, value }: { title: string; value: string | number }) {
   return (
     <div className="rounded-xl border bg-white p-4 shadow-sm">
       <p className="text-xs font-medium text-slate-500 mb-1 leading-none">{title}</p>
@@ -3868,13 +3877,13 @@ function MetricCard({ title, value }: { title: string; value: string | number })
   );
 }
 
-function formatToon(profile: any, rec: any) {
+function formatToon(profile: ApiRecord, rec: ApiRecord) {
   let profileToon = "linex_profile:\n profile:\n";
   if (profile.raw_toon) {
     profileToon = profile.raw_toon;
   } else if (profile.attributes) {
     for (const [key, attr] of Object.entries(profile.attributes)) {
-      const a = attr as any;
+      const a = attr as ApiRecord;
       profileToon += `  ${key}: ${a.value} [${a.confidence}]\n`;
     }
   }
@@ -3924,13 +3933,11 @@ const ALL_STATEMENTS = [
 
 function InlineAnalyzingIndicator() {
   const [stepIndex, setStepIndex] = useState(0);
-  const [steps, setSteps] = useState<string[]>([]);
-
-  useEffect(() => {
+  const [steps] = useState<string[]>(() => {
     // Shuffle and pick 10 random statements for this run
     const shuffled = [...ALL_STATEMENTS].sort(() => 0.5 - Math.random());
-    setSteps(shuffled.slice(0, 10));
-  }, []);
+    return shuffled.slice(0, 10);
+  });
 
   useEffect(() => {
     if (steps.length === 0) return;
@@ -3945,6 +3952,7 @@ function InlineAnalyzingIndicator() {
       <div className="relative flex items-center justify-center w-8 h-8 shrink-0">
         <div className="relative flex items-center justify-center w-full h-full">
           {/* Animated Linex Logo */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/linex-animated.svg" alt="Loading..." className="w-6 h-6" />
         </div>
       </div>
@@ -3967,7 +3975,7 @@ function InlineAnalyzingIndicator() {
 // ========================================================
 // Reusable Assignment View
 // ========================================================
-export function ProfileAssignmentView({ assignment }: { assignment: any }) {
+export function ProfileAssignmentView({ assignment }: { assignment: ApiRecord }) {
   return (
     <div className="rounded-lg border border-slate-200 p-5 space-y-4">
       <div className="flex items-center gap-4">
@@ -3989,7 +3997,7 @@ export function ProfileAssignmentView({ assignment }: { assignment: any }) {
         <div>
           <h4 className="text-xs font-semibold text-[#00aaff] mb-2 tracking-wide">Alternate Candidates</h4>
           <div className="flex flex-wrap gap-3">
-            {assignment.alternates.map((alt: any, i: number) => (
+            {assignment.alternates.map((alt: ApiRecord, i: number) => (
               <div key={i} className="rounded-md border border-slate-200 px-3 py-2 text-sm">
                 <span className="font-semibold">{alt.profile_id}</span>
                 <span className="text-slate-400 ml-2">d={alt.distance}</span>

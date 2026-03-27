@@ -47,6 +47,7 @@ export default function NavRail({ view, setView }: NavRailProps) {
           overflow: "visible",
         }}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/favicon.svg"
           alt="LX"
