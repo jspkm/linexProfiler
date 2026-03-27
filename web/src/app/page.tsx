@@ -157,6 +157,7 @@ export default function Home() {
     if (activeView === "welcome" || (activeView === "generator" && generatorTab === "optimize")) {
       incentives.loadIncentiveSetDetail(incentives.selectedIncentiveSetVersion || undefined);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView, generatorTab, incentives.selectedIncentiveSetVersion]);
 
   // Optimization polling
@@ -270,6 +271,7 @@ export default function Home() {
     optimization.setOptimizationState(cachedState);
     optimization.setOptimizationId(cachedOptimizationId);
     optimization.setOptimizeInProgress(cachedState?.status === "running");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView, generatorTab, optimization.optimizeInProgress, optimization.optimizationId, optimization.optimizationState, learn.selectedCatalogVersion]);
 
   useEffect(() => {
