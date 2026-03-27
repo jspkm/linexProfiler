@@ -667,3 +667,81 @@ def fs_delete_orphaned_portfolio_artifacts() -> dict:
         "deleted_catalogs": deleted_catalogs,
         "deleted_optimizations": deleted_optimizations,
     }
+
+
+# ---------- Workflows ----------
+
+WORKFLOW_COLLECTION = "workflows"
+
+
+def fs_create_workflow(name: str, description: str, detail: str = "") -> dict:
+    """Create a new workflow. Returns the workflow dict."""
+    db = _get_db()
+    workflow_id = f"wf_{uuid.uuid4().hex[:12]}"
+    now_iso = datetime.datetime.utcnow().isoformat()
+    doc = {
+        "workflow_id": workflow_id,
+        "name": name.strip(),
+        "description": description.strip(),
+        "detail": detail.strip(),
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+    db.collection(WORKFLOW_COLLECTION).document(workflow_id).set(doc)
+    return doc
+
+
+def fs_list_workflows() -> list[dict]:
+    """List all workflows, newest first."""
+    db = _get_db()
+    results: list[dict] = []
+    for doc in db.collection(WORKFLOW_COLLECTION).stream():
+        data = _serialize_dates(doc.to_dict() or {})
+        results.append({
+            "workflow_id": data.get("workflow_id", doc.id),
+            "name": data.get("name", ""),
+            "description": data.get("description", ""),
+            "detail": data.get("detail", ""),
+            "created_at": data.get("created_at", ""),
+            "updated_at": data.get("updated_at", ""),
+        })
+    results.sort(key=lambda w: w.get("created_at", ""), reverse=True)
+    return results
+
+
+def fs_get_workflow(workflow_id: str) -> dict | None:
+    """Get a single workflow by ID. Returns None if not found."""
+    db = _get_db()
+    doc = db.collection(WORKFLOW_COLLECTION).document(workflow_id).get()
+    if not doc.exists:
+        return None
+    return _serialize_dates(doc.to_dict())
+
+
+def fs_update_workflow(workflow_id: str, name: str | None = None, description: str | None = None, detail: str | None = None) -> dict | None:
+    """Update a workflow's name, description, and/or detail. Returns updated doc or None."""
+    db = _get_db()
+    doc_ref = db.collection(WORKFLOW_COLLECTION).document(workflow_id)
+    doc = doc_ref.get()
+    if not doc.exists:
+        return None
+    updates: dict = {"updated_at": datetime.datetime.utcnow().isoformat()}
+    if name is not None:
+        updates["name"] = name.strip()
+    if description is not None:
+        updates["description"] = description.strip()
+    if detail is not None:
+        updates["detail"] = detail.strip()
+    doc_ref.update(updates)
+    return _serialize_dates(doc_ref.get().to_dict())
+
+
+def fs_delete_workflow(workflow_id: str) -> bool:
+    """Delete a workflow. Returns True if it existed."""
+    db = _get_db()
+    doc_ref = db.collection(WORKFLOW_COLLECTION).document(workflow_id)
+    doc = doc_ref.get()
+    if not doc.exists:
+        return False
+    doc_ref.delete()
+    return True

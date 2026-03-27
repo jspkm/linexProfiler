@@ -631,6 +631,8 @@ from profile_generator.firestore_client import (
     fs_save_portfolio_dataset, fs_list_portfolio_datasets,
     fs_load_portfolio_dataset, fs_delete_portfolio_dataset_cascade,
     fs_create_portfolio_dataset_metadata,
+    fs_create_workflow, fs_list_workflows, fs_get_workflow,
+    fs_update_workflow, fs_delete_workflow,
 )
 from models.incentive_set import Incentive, IncentiveSet
 from models.transaction import UserTransactions
@@ -1140,6 +1142,79 @@ def delete_incentive_set_endpoint(version):
         return jsonify({"error": str(e)}), 500
 
 
+# ==================== Workflow endpoints ====================
+
+
+@app.route("/linexone-dev/us-central1/list_workflows", methods=["GET"])
+def list_workflows_endpoint():
+    try:
+        workflows = fs_list_workflows()
+        return jsonify({"workflows": workflows})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/linexone-dev/us-central1/get_workflow/<workflow_id>", methods=["GET"])
+def get_workflow_endpoint(workflow_id):
+    try:
+        wf = fs_get_workflow(workflow_id)
+        if not wf:
+            return jsonify({"error": "Workflow not found"}), 404
+        return jsonify(wf)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/linexone-dev/us-central1/create_workflow", methods=["POST"])
+def create_workflow_endpoint():
+    blocked = _guard_write()
+    if blocked:
+        return blocked
+    try:
+        data = request.get_json(silent=True) or {}
+        name = (data.get("name") or "").strip()
+        description = (data.get("description") or "").strip()
+        detail = (data.get("detail") or "").strip()
+        if not name:
+            return jsonify({"error": "Missing workflow name"}), 400
+        wf = fs_create_workflow(name, description, detail=detail)
+        return jsonify(wf)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/linexone-dev/us-central1/update_workflow/<workflow_id>", methods=["POST"])
+def update_workflow_endpoint(workflow_id):
+    blocked = _guard_write()
+    if blocked:
+        return blocked
+    try:
+        data = request.get_json(silent=True) or {}
+        name = data.get("name")
+        description = data.get("description")
+        detail = data.get("detail")
+        wf = fs_update_workflow(workflow_id, name=name, description=description, detail=detail)
+        if not wf:
+            return jsonify({"error": "Workflow not found"}), 404
+        return jsonify(wf)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/linexone-dev/us-central1/delete_workflow/<workflow_id>", methods=["DELETE"])
+def delete_workflow_endpoint(workflow_id):
+    blocked = _guard_write()
+    if blocked:
+        return blocked
+    try:
+        ok = fs_delete_workflow(workflow_id)
+        if not ok:
+            return jsonify({"error": "Workflow not found"}), 404
+        return jsonify({"deleted": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     startup_error = dev_credentials_error()
     if startup_error:
@@ -1197,4 +1272,10 @@ if __name__ == "__main__":
     print("  - POST /linexone-dev/us-central1/create_incentive_set")
     print("  - POST /linexone-dev/us-central1/set_default_incentive_set/<version>")
     print("  - DEL  /linexone-dev/us-central1/delete_incentive_set/<version>")
+    print("  Workflows:")
+    print("  - GET  /linexone-dev/us-central1/list_workflows")
+    print("  - GET  /linexone-dev/us-central1/get_workflow/<id>")
+    print("  - POST /linexone-dev/us-central1/create_workflow")
+    print("  - POST /linexone-dev/us-central1/update_workflow/<id>")
+    print("  - DEL  /linexone-dev/us-central1/delete_workflow/<id>")
     app.run(host="127.0.0.1", port=5050, debug=False)

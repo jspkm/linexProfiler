@@ -232,6 +232,9 @@ def agent_chat(req: https_fn.Request) -> https_fn.Response:
             "- PORTFOLIO: An uploaded dataset of raw customer transaction data (CSV). Listed in uploaded_portfolios.\n"
             "- PROFILE: A generated set of behavioral customer segments from K-Means clustering on a portfolio. "
             "Listed in available_profiles. Each profile has a version, source, and K value.\n"
+            "- WORKFLOW: A named template card displayed in the Workflow view. NOT a profile, NOT clustering, NOT optimization. "
+            "A workflow is simply a saved card with a name and description. 'Create workflow' = create_workflow action. "
+            "'Create profile' = create_profile action (K-Means clustering). These are COMPLETELY DIFFERENT operations.\n"
             "- These are DIFFERENT things. 'List portfolios' = show uploaded datasets. 'List profiles' = show available profile versions.\n"
             "- 'List profiles' means listing the NAMES/VERSIONS of all available profiles (from available_profiles), "
             "NOT the detailed cluster breakdown of the currently selected profile. Keep it brief — just version, source, K.\n"
@@ -279,6 +282,12 @@ def agent_chat(req: https_fn.Request) -> https_fn.Response:
             "  POST /api/create_incentive_set — Create new incentive set\n"
             "  POST /api/set_default_incentive_set/<version> — Set default incentive set\n"
             "  DELETE /api/delete_incentive_set/<version> — Delete incentive set\n\n"
+            "Workflows:\n"
+            "  GET  /api/list_workflows — List all workflows\n"
+            "  GET  /api/get_workflow/<id> — Get a single workflow\n"
+            "  POST /api/create_workflow — Create a new workflow (name, description)\n"
+            "  POST /api/update_workflow/<id> — Update a workflow's name/description\n"
+            "  DELETE /api/delete_workflow/<id> — Delete a workflow\n\n"
             "### MCP Server (stdio transport, FastMCP)\n"
             "Server name: \"agent\". Available tools:\n"
             "  profile_user_tool(transactions, customer_id?) — Full demographic/behavioral profile with card recommendations\n"
@@ -289,6 +298,50 @@ def agent_chat(req: https_fn.Request) -> https_fn.Response:
             "  list_available_cards_tool(region?) — List credit cards in catalog\n"
             "Resources: agent://cards/catalog — Full credit card catalog JSON\n"
             "Prompts: profile_analysis(customer_id) — Generate analysis prompt for a test user\n\n"
+            "## Workflow Management\n"
+            "WORKFLOWS are named template cards displayed in the Workflow view. They are NOT profiles, NOT clustering, "
+            "and NOT optimization runs. A workflow is simply a saved card with a name and description that appears "
+            "on the Workflow page. Do NOT confuse 'create workflow' with 'create profile' (K-Means clustering). "
+            "When the user says 'create workflow' or 'new workflow', use the create_workflow action — NOT create_profile.\n\n"
+            "Workflows have a `type` field — either `built-in` or `custom`. "
+            "Built-in workflows (like 'Optimize portfolio') are READ-ONLY — they CANNOT be updated, renamed, or deleted. "
+            "Only `custom` (user-created) workflows can be modified or deleted. "
+            "If the user tries to edit or delete a built-in workflow, politely explain it is a built-in workflow and cannot be changed.\n\n"
+            '  - list_workflows: {"type":"list_workflows"}\n'
+            '    Lists all workflows (built-in + custom). Synonyms: "list workflows", "show workflows", "my workflows".\n'
+            '    Do NOT try to list them in the answer text — use the action so the frontend renders the list.\n'
+            '  - create_workflow: {"type":"create_workflow","name":"<NAME>","description":"<DESC>","detail":"<DETAIL>"}\n'
+            '    Creates a new custom workflow card. Name is required; description and detail are optional.\n'
+            '    `detail` is a rich text field containing instructions/context that the LLM uses to compose the UI '
+            'when the workflow card is clicked (e.g. which data to load, which steps to show, what parameters to collect).\n'
+            '    When the user asks to create a workflow, ask for a name, description, and detail.\n'
+            '    This is NOT the same as creating a profile — no clustering or K value is involved.\n'
+            '  - update_workflow: {"type":"update_workflow","workflow_id":"<ID>","name":"<NAME>","description":"<DESC>","detail":"<DETAIL>"}\n'
+            '    Updates a custom workflow\'s name, description, and/or detail. ONLY for custom workflows (type != "built-in").\n'
+            '    When the user says "rename workflow", "update workflow", etc., resolve the workflow from context or ask.\n'
+            '  - request_delete_workflow: {"type":"request_delete_workflow","workflow_id":"<ID>"}\n'
+            '    Stages a custom workflow for deletion. ONLY for custom workflows (type != "built-in").\n'
+            '    ALWAYS use this first — NEVER use confirm_delete_workflow directly.\n'
+            '    Your answer MUST ask the user to confirm.\n'
+            '  - confirm_delete_workflow: {"type":"confirm_delete_workflow"}\n'
+            '    Only use when the user explicitly confirms deletion AND pending_delete_workflow is set.\n'
+            '  - cancel_delete_workflow: {"type":"cancel_delete_workflow"}\n'
+            '    Use when user declines deletion AND pending_delete_workflow is set.\n'
+            '  - When listing workflows, NUMBER them starting from 1. Users can reference by number in follow-ups.\n'
+            '  - When user says "delete <N>" after listing workflows, resolve the number to the workflow_id '
+            'from available_workflows and use request_delete_workflow. Reject if it resolves to a built-in workflow.\n\n'
+            "When using workflow actions, respond with valid JSON: "
+            '{"answer":"<text>","actions":[...]} — the answer text alone does NOT execute anything.\n'
+            "Use \\n for newlines within the answer string.\n\n"
+            "### Workflow Examples (follow these exactly)\n"
+            'User: "create new workflow"\n'
+            'Correct response: {"answer":"What would you like to name the new workflow?","actions":[]}\n'
+            'User: "Define incentive set"\n'
+            'Correct response: {"answer":"Creating workflow \\"Define incentive set\\".","actions":[{"type":"create_workflow","name":"Define incentive set","description":""}]}\n\n'
+            'User: "create a workflow called Customer Segmentation with description Segment customers by spending behavior"\n'
+            'Correct response: {"answer":"Creating workflow \\"Customer Segmentation\\".","actions":[{"type":"create_workflow","name":"Customer Segmentation","description":"Segment customers by spending behavior"}]}\n\n'
+            'User: "list workflows"\n'
+            'Correct response: {"answer":"Here are the available workflows:","actions":[{"type":"list_workflows"}]}\n\n'
         )
 
         if grid_context:
@@ -318,7 +371,9 @@ def agent_chat(req: https_fn.Request) -> https_fn.Response:
                 '    Choose totals: "avg" for ratios/percents, "sum" for dollar/number.\n'
                 '  - remove_column: {"type":"remove_column","label":"<NAME>"}\n'
                 '  - create_profile: {"type":"create_profile","k":<int>,"source":"uploaded-dataset:<id>"|"uploaded"}\n'
-                '    Creates a new profile catalog using K-Means clustering with K clusters.\n'
+                '    Creates a new profile catalog using K-Means clustering with K clusters. THIS IS NOT A WORKFLOW.\n'
+                '    ONLY use this when the user says "create profile", "learn profiles", or "cluster". '
+                'NEVER use this for "create workflow" — use create_workflow instead.\n'
                 '    Check grid_context.is_busy — if true, tell the user to wait.\n'
                 '    If user does not specify K, ASK them how many clusters to use (do NOT assume a default).\n'
                 '    Valid K range: 2 to 20. Typical values are 3–10. Recommend 5–8 for most portfolios.\n'
@@ -363,6 +418,50 @@ def agent_chat(req: https_fn.Request) -> https_fn.Response:
                 'This is a non-destructive operation. Keep the answer brief, e.g. "Starting optimization."\n'
                 '    CRITICAL: You MUST include the run_optimization action in the actions array. '
                 'Without it, nothing happens — the answer text alone does NOT trigger the optimization.\n\n'
+                "## Incentive Set Management\n"
+                "You can manage incentive sets (CRUD) through the following actions:\n"
+                '  - list_incentive_sets: {"type":"list_incentive_sets"}\n'
+                '    Lists all available incentive sets. Synonyms: "list incentive sets", "show incentive sets", '
+                '"my incentive sets", "what incentive sets".\n'
+                '    Do NOT try to list them in the answer text — use the action so the frontend renders the list.\n'
+                '  - create_incentive_set: {"type":"create_incentive_set","name":"<NAME>","description":"<DESC>","incentives":[{"name":"<NAME>","estimated_annual_cost_per_user":<COST>,"redemption_rate":<RATE>},...], "set_as_default": false}\n'
+                '    Creates a new incentive set. Each incentive requires name, estimated_annual_cost_per_user (number), '
+                'and redemption_rate (0.0-1.0). Optionally set set_as_default to true.\n'
+                '    When the user asks to create an incentive set, gather the necessary details: name, and the list of incentives.\n'
+                '    If the user provides incentive names without costs/rates, use reasonable defaults '
+                '(e.g., cost ~$50-200, redemption_rate ~0.3-0.8 depending on the incentive type).\n'
+                '  - request_delete_incentive_set: {"type":"request_delete_incentive_set","version":"<version>"}\n'
+                '    Stages an incentive set for deletion. Use this when the user wants to delete an incentive set.\n'
+                '    ALWAYS use this first to request confirmation — NEVER use confirm_delete_incentive_set directly.\n'
+                '    Your answer MUST ask the user to confirm (e.g. "Are you sure you want to delete incentive set <name>? '
+                'Reply yes to confirm.").\n'
+                '  - confirm_delete_incentive_set: {"type":"confirm_delete_incentive_set"}\n'
+                '    Only use when the user explicitly confirms deletion AND pending_delete_incentive_set is set.\n'
+                '  - cancel_delete_incentive_set: {"type":"cancel_delete_incentive_set"}\n'
+                '    Use when user declines deletion AND pending_delete_incentive_set is set.\n'
+                '  - set_default_incentive_set: {"type":"set_default_incentive_set","version":"<version>"}\n'
+                '    Sets an incentive set as the default. Use when user says "set default", "make default", etc.\n'
+                '  - When listing incentive sets, NUMBER them starting from 1. Users can reference by number in follow-ups.\n'
+                '  - When user says "delete <N>" after listing incentive sets, resolve the number to the version '
+                'from available_incentive_sets and use request_delete_incentive_set.\n\n'
+                "## Incentive Analysis & Categorization\n"
+                "You have FULL access to the incentive set data in grid_context.incentive_set.incentives. "
+                "Each incentive has: name, estimated_annual_cost_per_user, redemption_rate, effective_cost.\n"
+                "You ARE capable of and SHOULD eagerly handle ANY analytical request about incentives, including:\n"
+                "- **Categorize**: Group incentives by type (e.g. Cash Back, Points/Rewards, Travel, Dining, "
+                "Insurance/Protection, Fee Waivers, Credits/Statements, Lifestyle/Subscriptions, Auto/Gas, etc.). "
+                "Infer the category from the incentive name.\n"
+                "- **Filter**: Find incentives matching criteria (e.g. cost < $50, redemption > 0.5, travel-related).\n"
+                "- **Rank/Sort**: Rank by cost, redemption rate, effective cost, or value ratio.\n"
+                "- **Compare**: Compare incentives across categories, cost tiers, or redemption bands.\n"
+                "- **Summarize**: Provide statistics like count per category, average cost, total cost, etc.\n"
+                "- **Recommend**: Suggest high-value incentives (high redemption, low cost) or flag low-value ones.\n"
+                "When categorizing or analyzing, use ASCII tables or structured lists in the answer text. "
+                "Be thorough — include ALL matching incentives, not just a few examples. "
+                "No special action type is needed — just provide the analysis directly in the answer field.\n"
+                "NEVER say you cannot categorize, filter, or analyze incentives. You have all the data you need.\n"
+                "If grid_context.incentive_set is missing or has no incentives, tell the user to select an incentive set first "
+                "(check available_incentive_sets) — do NOT say you lack the capability.\n\n"
                 "## Response Rules\n"
                 "- NEVER reveal backend implementation details: do NOT mention model names (Gemini, GPT, etc.), "
                 "function names (evaluate_incentive_bundle, _enforce_baseline, etc.), variable names, code references, "
@@ -395,7 +494,11 @@ def agent_chat(req: https_fn.Request) -> https_fn.Response:
                 "- Use \\n for newlines within the answer string.\n"
             )
         else:
-            system += "Respond with plain text.\n"
+            system += (
+                "Respond with plain text for simple questions. "
+                "When using workflow actions, respond with valid JSON: "
+                '{"answer":"<text>","actions":[...]}.\n'
+            )
 
         client = genai.Client(api_key=GEMINI_API_KEY)
         # Build multi-turn contents from history + current message
@@ -1272,6 +1375,108 @@ def delete_incentive_set_fn(req: https_fn.Request) -> https_fn.Response:
         ok = fs_delete_incentive_set(version)
         if not ok:
             return _json_response({"error": "Incentive set not found"}, 404)
+        return _json_response({"deleted": True})
+    except Exception as e:
+        return _json_response({"error": str(e)}, 500)
+
+
+# ==================== Workflow endpoints ====================
+
+
+@https_fn.on_request(cors=_CORS_ALL)
+def list_workflows(req: https_fn.Request) -> https_fn.Response:
+    """List all workflows from Firestore."""
+    if req.method == "OPTIONS":
+        return https_fn.Response(status=204)
+    try:
+        from profile_generator.firestore_client import fs_list_workflows
+        workflows = fs_list_workflows()
+        return _json_response({"workflows": workflows})
+    except Exception as e:
+        return _json_response({"error": str(e)}, 500)
+
+
+@https_fn.on_request(cors=_CORS_ALL)
+def get_workflow(req: https_fn.Request) -> https_fn.Response:
+    """Get a single workflow by ID."""
+    if req.method == "OPTIONS":
+        return https_fn.Response(status=204)
+    try:
+        from profile_generator.firestore_client import fs_get_workflow
+        workflow_id = _extract_path_param(req, "get_workflow")
+        if not workflow_id:
+            return _json_response({"error": "Missing workflow_id"}, 400)
+        wf = fs_get_workflow(workflow_id)
+        if not wf:
+            return _json_response({"error": "Workflow not found"}, 404)
+        return _json_response(wf)
+    except Exception as e:
+        return _json_response({"error": str(e)}, 500)
+
+
+@https_fn.on_request(cors=_CORS_ALL)
+def create_workflow(req: https_fn.Request) -> https_fn.Response:
+    """Create a new workflow."""
+    if req.method == "OPTIONS":
+        return https_fn.Response(status=204)
+    blocked = _guard_write()
+    if blocked:
+        return blocked
+    try:
+        from profile_generator.firestore_client import fs_create_workflow
+        data = req.get_json(silent=True) or {}
+        name = (data.get("name") or "").strip()
+        description = (data.get("description") or "").strip()
+        detail = (data.get("detail") or "").strip()
+        if not name:
+            return _json_response({"error": "Missing workflow name"}, 400)
+        wf = fs_create_workflow(name, description, detail=detail)
+        return _json_response(wf)
+    except Exception as e:
+        return _json_response({"error": str(e)}, 500)
+
+
+@https_fn.on_request(cors=_CORS_ALL)
+def update_workflow(req: https_fn.Request) -> https_fn.Response:
+    """Update a workflow's name and/or description."""
+    if req.method == "OPTIONS":
+        return https_fn.Response(status=204)
+    blocked = _guard_write()
+    if blocked:
+        return blocked
+    try:
+        from profile_generator.firestore_client import fs_update_workflow
+        workflow_id = _extract_path_param(req, "update_workflow")
+        if not workflow_id:
+            return _json_response({"error": "Missing workflow_id"}, 400)
+        data = req.get_json(silent=True) or {}
+        name = data.get("name")
+        description = data.get("description")
+        detail = data.get("detail")
+        wf = fs_update_workflow(workflow_id, name=name, description=description, detail=detail)
+        if not wf:
+            return _json_response({"error": "Workflow not found"}, 404)
+        return _json_response(wf)
+    except Exception as e:
+        return _json_response({"error": str(e)}, 500)
+
+
+@https_fn.on_request(cors=_CORS_ALL)
+def delete_workflow(req: https_fn.Request) -> https_fn.Response:
+    """Delete a workflow."""
+    if req.method == "OPTIONS":
+        return https_fn.Response(status=204)
+    blocked = _guard_write()
+    if blocked:
+        return blocked
+    try:
+        from profile_generator.firestore_client import fs_delete_workflow
+        workflow_id = _extract_path_param(req, "delete_workflow")
+        if not workflow_id:
+            return _json_response({"error": "Missing workflow_id"}, 400)
+        ok = fs_delete_workflow(workflow_id)
+        if not ok:
+            return _json_response({"error": "Workflow not found"}, 404)
         return _json_response({"deleted": True})
     except Exception as e:
         return _json_response({"error": str(e)}, 500)

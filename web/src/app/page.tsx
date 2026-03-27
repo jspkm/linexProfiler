@@ -24,6 +24,9 @@ export default function Home() {
   const [pendingDeleteCatalog, _setPendingDeleteCatalog] = useState<string | null>(null);
   const pendingDeleteCatalogRef = useRef<string | null>(null);
   const setPendingDeleteCatalog = (v: string | null) => { pendingDeleteCatalogRef.current = v; _setPendingDeleteCatalog(v); };
+  const [pendingDeleteIncentiveSet, _setPendingDeleteIncentiveSet] = useState<string | null>(null);
+  const pendingDeleteIncentiveSetRef = useRef<string | null>(null);
+  const setPendingDeleteIncentiveSet = (v: string | null) => { pendingDeleteIncentiveSetRef.current = v; _setPendingDeleteIncentiveSet(v); };
 
   // Custom computed columns for the Optimal Incentive Program grid
   // Each column: { id, label, expr, format }
@@ -91,6 +94,29 @@ export default function Home() {
   const [selectedIncentiveSetVersion, setSelectedIncentiveSetVersion] = useState("");
   const [selectedIncentiveSetDetail, setSelectedIncentiveSetDetail] = useState<any>(null);
   const [incentiveSetDetailLoading, setIncentiveSetDetailLoading] = useState(false);
+  const [workflows, setWorkflows] = useState<any[]>([]);
+  const [activeWorkflow, setActiveWorkflow] = useState<{ id: string; name: string; description: string; detail: string } | null>(null);
+  const [pendingDeleteWorkflow, _setPendingDeleteWorkflow] = useState<string | null>(null);
+  const pendingDeleteWorkflowRef = useRef<string | null>(null);
+  const setPendingDeleteWorkflow = (v: string | null) => { pendingDeleteWorkflowRef.current = v; _setPendingDeleteWorkflow(v); };
+  // Multi-step workflow creation: awaiting_name → awaiting_description → awaiting_detail → create
+  const [pendingCreateWorkflow, _setPendingCreateWorkflow] = useState<
+    | { step: "awaiting_name" }
+    | { step: "awaiting_description"; name: string }
+    | { step: "awaiting_detail"; name: string; description: string }
+    | null
+  >(null);
+  const pendingCreateWorkflowRef = useRef<typeof pendingCreateWorkflow>(null);
+  const setPendingCreateWorkflow = (v: typeof pendingCreateWorkflow) => { pendingCreateWorkflowRef.current = v; _setPendingCreateWorkflow(v); };
+  // Pending workflow selection for edit/delete: user picks a number from a listed set of custom workflows
+  const [pendingWorkflowAction, _setPendingWorkflowAction] = useState<{ action: "edit" | "delete"; candidates: any[] } | null>(null);
+  const pendingWorkflowActionRef = useRef<typeof pendingWorkflowAction>(null);
+  const setPendingWorkflowAction = (v: typeof pendingWorkflowAction) => { pendingWorkflowActionRef.current = v; _setPendingWorkflowAction(v); };
+  // Multi-step edit workflow: name → description → detail → save
+  type PendingEdit = { workflow_id: string; name?: string; description?: string; step: "awaiting_description" | "awaiting_detail" } | null;
+  const [pendingEditWorkflow, _setPendingEditWorkflow] = useState<PendingEdit>(null);
+  const pendingEditWorkflowRef = useRef<PendingEdit>(null);
+  const setPendingEditWorkflow = (v: PendingEdit) => { pendingEditWorkflowRef.current = v; _setPendingEditWorkflow(v); };
   const profilerAbortRef = useRef<AbortController | null>(null);
   const learnXhrRef = useRef<XMLHttpRequest | null>(null);
   const learnFetchAbortRef = useRef<AbortController | null>(null);
@@ -780,12 +806,27 @@ export default function Home() {
       loadCatalog(selectedCatalogVersion || undefined);
       fetchSavedOptimizations(selectedCatalogVersion || undefined);
       fetchIncentiveSets();
+    } else if (activeView === "workflow") {
+      fetchWorkflows();
     } else if (activeView === "generator") {
       if (generatorTab === "optimize") fetchSavedOptimizations(selectedCatalogVersion || undefined);
       fetchIncentiveSets();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView, generatorTab]);
+
+  // Fetch data when a custom workflow is activated
+  const prevActiveWorkflowRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeWorkflow && activeView === "welcome" && activeWorkflow.id !== prevActiveWorkflowRef.current) {
+      prevActiveWorkflowRef.current = activeWorkflow.id;
+      // Ensure incentive sets are loaded for workflows that need them
+      if (incentiveSets.length === 0) fetchIncentiveSets();
+      if (!selectedIncentiveSetDetail) loadIncentiveSetDetail(selectedIncentiveSetVersion || undefined);
+    } else if (!activeWorkflow) {
+      prevActiveWorkflowRef.current = null;
+    }
+  }, [activeWorkflow, activeView]);
 
   // Optimize polling logic
   useEffect(() => {
@@ -1097,6 +1138,16 @@ export default function Home() {
     } catch { /* silent */ }
   };
 
+  const fetchWorkflows = async () => {
+    try {
+      const res = await fetch(`${CLOUD_FUNCTION_URL}/list_workflows`);
+      if (res.ok) {
+        const data = await res.json();
+        setWorkflows(data.workflows || []);
+      }
+    } catch { /* silent */ }
+  };
+
   const loadIncentiveSetDetail = async (version?: string) => {
     setIncentiveSetDetailLoading(true);
     try {
@@ -1244,7 +1295,7 @@ export default function Home() {
   };
 
   /** Build full optimization context sent to backend so the LLM can give specific, data-grounded answers */
-  const buildGridContext = () => {
+  const buildGridContext = (overrides?: { incentiveSetDetail?: any }) => {
     const ctx: Record<string, any> = {
       fields: GRID_FIELDS,
       custom_columns: gridCustomColumns.map((c) => ({ label: c.label, formula: c.exprSource, format: c.format })),
@@ -1269,12 +1320,13 @@ export default function Home() {
       };
     }
 
-    // Incentive set context
-    if (selectedIncentiveSetDetail) {
+    // Incentive set context (use override if provided, e.g. freshly fetched before state update)
+    const incDetail = overrides?.incentiveSetDetail || selectedIncentiveSetDetail;
+    if (incDetail) {
       ctx.incentive_set = {
-        name: selectedIncentiveSetDetail.name || selectedIncentiveSetDetail.version,
-        version: selectedIncentiveSetDetail.version,
-        incentives: (selectedIncentiveSetDetail.incentives || []).map((inc: any) => ({
+        name: incDetail.name || incDetail.version,
+        version: incDetail.version,
+        incentives: (incDetail.incentives || []).map((inc: any) => ({
           name: inc.name,
           estimated_annual_cost_per_user: inc.estimated_annual_cost_per_user,
           redemption_rate: inc.redemption_rate,
@@ -1327,7 +1379,27 @@ export default function Home() {
       catalog_version: exp.catalog_version,
       incentive_set_version: exp.incentive_set_version,
     }));
+    // Available incentive sets
+    ctx.available_incentive_sets = (incentiveSets || []).map((s: any) => ({
+      version: s.version,
+      name: s.name || s.version,
+      is_default: s.is_default || false,
+      incentive_count: s.incentive_count || 0,
+    }));
+    // Available workflows (built-in + user-created)
+    ctx.available_workflows = [
+      { workflow_id: "builtin-optimize-portfolio", name: "Optimize portfolio", description: "Learn behavioral profiles from transaction data using clustering, then derive optimal incentive program through simulation.", type: "built-in" },
+      ...(workflows || []).map((w: any) => ({
+        workflow_id: w.workflow_id,
+        name: w.name,
+        description: w.description,
+        detail: w.detail || "",
+        type: "custom",
+      })),
+    ];
     ctx.pending_delete_catalog = pendingDeleteCatalogRef.current;
+    ctx.pending_delete_incentive_set = pendingDeleteIncentiveSetRef.current;
+    ctx.pending_delete_workflow = pendingDeleteWorkflowRef.current;
     ctx.is_busy = Boolean(learnInProgress || optimizeInProgress);
     if (learnInProgress) ctx.busy_reason = "profile_creation";
     else if (optimizeInProgress) ctx.busy_reason = "optimization";
@@ -1446,9 +1518,9 @@ export default function Home() {
           setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "Cannot delete while another operation is in progress.", submittedAt: formatChatTimestamp(new Date()) }]);
           continue;
         }
+        const deleteProgressId = `${Date.now()}-del-progress`;
         try {
           setAgentChatLoading(true);
-          const deleteProgressId = `${Date.now()}-del-progress`;
           setAgentChatMessages((prev) => [...prev, { id: deleteProgressId, role: "agent" as const, text: `Deleting profile ${version.slice(0, 12)}...`, submittedAt: formatChatTimestamp(new Date()) }]);
           // First delete all optimizations associated with this catalog
           const listRes = await fetch(`${CLOUD_FUNCTION_URL}/list_optimizations?catalog_version=${version}`);
@@ -1642,6 +1714,250 @@ export default function Home() {
         } finally {
           setAgentChatLoading(false);
         }
+
+      } else if (action.type === "list_incentive_sets") {
+        // Show a numbered list of incentive sets
+        const sets = incentiveSets || [];
+        let listText: string;
+        if (sets.length === 0) {
+          listText = "No incentive sets found.";
+        } else {
+          const lines = sets.map((s: any, i: number) => {
+            const defaultTag = s.is_default ? " (default)" : "";
+            const count = s.incentive_count || 0;
+            return `${i + 1}. ${s.name || s.version} · ${count} incentives${defaultTag}`;
+          });
+          listText = lines.join("\n");
+        }
+        setAgentChatMessages((prev) => {
+          const copy = [...prev];
+          for (let i = copy.length - 1; i >= 0; i--) {
+            if (copy[i].role === "agent") {
+              copy[i] = { ...copy[i], text: copy[i].text + "\n\n" + listText };
+              return copy;
+            }
+          }
+          return [...copy, { id: `${Date.now()}-sys`, role: "agent" as const, text: listText, submittedAt: formatChatTimestamp(new Date()) }];
+        });
+
+      } else if (action.type === "create_incentive_set") {
+        // Create a new incentive set via the API
+        const name = action.name || "";
+        const description = action.description || "";
+        const incentives = action.incentives || [];
+        const setAsDefault = action.set_as_default || false;
+        if (!incentives.length) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "Cannot create an incentive set with no incentives.", submittedAt: formatChatTimestamp(new Date()) }]);
+          continue;
+        }
+        try {
+          setAgentChatLoading(true);
+          const res = await fetch(`${CLOUD_FUNCTION_URL}/create_incentive_set`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, description, incentives, set_as_default: setAsDefault }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            await fetchIncentiveSets();
+            if (data.version) {
+              setSelectedIncentiveSetVersion(data.version);
+              loadIncentiveSetDetail(data.version);
+            }
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Incentive set "${name || data.version}" created with ${incentives.length} incentives.`, submittedAt: formatChatTimestamp(new Date()) }]);
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to create incentive set: ${errData.error || res.statusText}`, submittedAt: formatChatTimestamp(new Date()) }]);
+          }
+        } catch (e: any) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error creating incentive set: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } finally {
+          setAgentChatLoading(false);
+        }
+
+      } else if (action.type === "request_delete_incentive_set") {
+        // Stage an incentive set for deletion — wait for user confirmation
+        const version = action.version || "";
+        if (version) setPendingDeleteIncentiveSet(version);
+
+      } else if (action.type === "confirm_delete_incentive_set") {
+        // User confirmed deletion — delete incentive set
+        const version = pendingDeleteIncentiveSetRef.current || action.version || "";
+        if (!version) continue;
+        try {
+          setAgentChatLoading(true);
+          const delProgressId = `${Date.now()}-del-is`;
+          setAgentChatMessages((prev) => [...prev, { id: delProgressId, role: "agent" as const, text: `Deleting incentive set ${version.slice(0, 12)}...`, submittedAt: formatChatTimestamp(new Date()) }]);
+          const res = await fetch(`${CLOUD_FUNCTION_URL}/delete_incentive_set/${version}`, { method: "DELETE" });
+          if (res.ok) {
+            await fetchIncentiveSets();
+            if (selectedIncentiveSetVersion === version) {
+              setSelectedIncentiveSetVersion("");
+              setSelectedIncentiveSetDetail(null);
+            }
+            setAgentChatMessages((prev) => {
+              const idx = prev.findIndex((m) => m.id === delProgressId);
+              const doneMsg = { id: `${Date.now()}-sys`, role: "agent" as const, text: "Done. Incentive set deleted.", submittedAt: formatChatTimestamp(new Date()) };
+              if (idx >= 0) { const copy = [...prev]; copy[idx] = { ...prev[idx], ...doneMsg }; return copy; }
+              return [...prev, doneMsg];
+            });
+          } else {
+            setAgentChatMessages((prev) => {
+              const idx = prev.findIndex((m) => m.id === delProgressId);
+              const failMsg = { id: `${Date.now()}-sys`, role: "agent" as const, text: "Failed to delete incentive set.", submittedAt: formatChatTimestamp(new Date()) };
+              if (idx >= 0) { const copy = [...prev]; copy[idx] = { ...prev[idx], ...failMsg }; return copy; }
+              return [...prev, failMsg];
+            });
+          }
+        } catch {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "Error deleting incentive set.", submittedAt: formatChatTimestamp(new Date()) }]);
+        } finally {
+          setPendingDeleteIncentiveSet(null);
+          setAgentChatLoading(false);
+        }
+
+      } else if (action.type === "cancel_delete_incentive_set") {
+        setPendingDeleteIncentiveSet(null);
+
+      } else if (action.type === "set_default_incentive_set") {
+        // Set an incentive set as the default
+        const version = action.version || "";
+        if (!version) continue;
+        try {
+          setAgentChatLoading(true);
+          const res = await fetch(`${CLOUD_FUNCTION_URL}/set_default_incentive_set/${version}`, { method: "POST" });
+          if (res.ok) {
+            await fetchIncentiveSets();
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Incentive set ${version.slice(0, 12)} set as default.`, submittedAt: formatChatTimestamp(new Date()) }]);
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to set default: ${errData.error || res.statusText}`, submittedAt: formatChatTimestamp(new Date()) }]);
+          }
+        } catch (e: any) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error setting default: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } finally {
+          setAgentChatLoading(false);
+        }
+
+      // ---- Workflow CRUD actions ----
+      } else if (action.type === "list_workflows") {
+        try {
+          setAgentChatLoading(true);
+          const res = await fetch(`${CLOUD_FUNCTION_URL}/list_workflows`);
+          const userWfs = res.ok ? (await res.json()).workflows || [] : [];
+          setWorkflows(userWfs);
+          // Merge built-in workflow(s) with user-created ones
+          const allWfs = [
+            { name: "Optimize portfolio", description: "Learn behavioral profiles from transaction data using clustering, then derive optimal incentive program through simulation.", type: "built-in" },
+            ...userWfs.map((w: any) => ({ ...w, type: "custom" })),
+          ];
+          const lines = allWfs.map((w: any, i: number) => {
+            const tag = w.type === "built-in" ? "built-in" : "custom";
+            const date = w.created_at ? new Date(w.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+            return `${i + 1}. ${w.name} — ${w.description || "(no description)"} [${tag}]${date ? ` · ${date}` : ""}`;
+          });
+          const listText = lines.join("\n");
+          setAgentChatMessages((prev) => {
+            const copy = [...prev];
+            for (let i = copy.length - 1; i >= 0; i--) {
+              if (copy[i].role === "agent") {
+                copy[i] = { ...copy[i], text: copy[i].text + "\n\n" + listText };
+                return copy;
+              }
+            }
+            return [...copy, { id: `${Date.now()}-sys`, role: "agent" as const, text: listText, submittedAt: formatChatTimestamp(new Date()) }];
+          });
+        } catch { /* silent */ } finally {
+          setAgentChatLoading(false);
+        }
+
+      } else if (action.type === "create_workflow") {
+        const name = action.name || "";
+        const description = action.description || "";
+        const detail = action.detail || "";
+        if (!name) continue;
+        try {
+          setAgentChatLoading(true);
+          const res = await fetch(`${CLOUD_FUNCTION_URL}/create_workflow`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, description, detail }),
+          });
+          if (res.ok) {
+            const wf = await res.json();
+            await fetchWorkflows();
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Workflow "${wf.name}" created.`, submittedAt: formatChatTimestamp(new Date()) }]);
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to create workflow: ${errData.error || res.statusText}`, submittedAt: formatChatTimestamp(new Date()) }]);
+          }
+        } catch (e: any) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error creating workflow: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } finally {
+          setAgentChatLoading(false);
+        }
+
+      } else if (action.type === "update_workflow") {
+        const wfId = action.workflow_id || "";
+        if (!wfId) continue;
+        if (wfId.startsWith("builtin-")) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "Built-in workflows cannot be modified.", submittedAt: formatChatTimestamp(new Date()) }]);
+          continue;
+        }
+        try {
+          setAgentChatLoading(true);
+          const body: any = {};
+          if (action.name) body.name = action.name;
+          if (action.description !== undefined) body.description = action.description;
+          if (action.detail !== undefined) body.detail = action.detail;
+          const res = await fetch(`${CLOUD_FUNCTION_URL}/update_workflow/${wfId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (res.ok) {
+            await fetchWorkflows();
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Workflow updated.`, submittedAt: formatChatTimestamp(new Date()) }]);
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to update workflow: ${errData.error || res.statusText}`, submittedAt: formatChatTimestamp(new Date()) }]);
+          }
+        } catch (e: any) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error updating workflow: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } finally {
+          setAgentChatLoading(false);
+        }
+
+      } else if (action.type === "request_delete_workflow") {
+        const wfId = action.workflow_id || "";
+        if (!wfId) continue;
+        if (wfId.startsWith("builtin-")) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "Built-in workflows cannot be deleted.", submittedAt: formatChatTimestamp(new Date()) }]);
+          continue;
+        }
+        setPendingDeleteWorkflow(wfId);
+
+      } else if (action.type === "confirm_delete_workflow") {
+        const wfId = pendingDeleteWorkflowRef.current || action.workflow_id || "";
+        if (!wfId) continue;
+        try {
+          setAgentChatLoading(true);
+          const res = await fetch(`${CLOUD_FUNCTION_URL}/delete_workflow/${wfId}`, { method: "DELETE" });
+          if (res.ok) {
+            await fetchWorkflows();
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "Workflow deleted.", submittedAt: formatChatTimestamp(new Date()) }]);
+          } else {
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "Failed to delete workflow.", submittedAt: formatChatTimestamp(new Date()) }]);
+          }
+        } catch {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: "Error deleting workflow.", submittedAt: formatChatTimestamp(new Date()) }]);
+        } finally {
+          setPendingDeleteWorkflow(null);
+          setAgentChatLoading(false);
+        }
+
+      } else if (action.type === "cancel_delete_workflow") {
+        setPendingDeleteWorkflow(null);
       }
     }
   };
@@ -1658,7 +1974,9 @@ export default function Home() {
 
   const submitAgentChat = async () => {
     const next = agentChatDraft.trim();
-    if (!next || agentChatLoading) return;
+    const inWorkflowFlow = Boolean(pendingCreateWorkflowRef.current || pendingWorkflowActionRef.current || pendingEditWorkflowRef.current);
+    if (agentChatLoading) return;
+    if (!next && !inWorkflowFlow) return;
     const now = new Date();
     const ts = formatChatTimestamp(now);
     const userMsg = { id: `${Date.now()}-u`, role: "user" as const, text: next, submittedAt: ts };
@@ -1666,10 +1984,10 @@ export default function Home() {
     setAgentChatDraft("");
 
     // Handle pending delete confirmation directly on the frontend (no LLM round-trip needed)
+    const YES_RE = /^(y|yes|yep|yeah|yea|confirm|sure|ok|okay|do it|go ahead)$/i;
+    const NO_RE = /^(n|no|nope|nah|cancel|never\s*mind|abort)$/i;
     if (pendingDeleteCatalogRef.current) {
       const lower = next.toLowerCase();
-      const YES_RE = /^(y|yes|yep|yeah|yea|confirm|sure|ok|okay|do it|go ahead)$/i;
-      const NO_RE = /^(n|no|nope|nah|cancel|never\s*mind|abort)$/i;
       if (YES_RE.test(lower)) {
         await executeAgentActions([{ type: "confirm_delete_profile" }]);
         return;
@@ -1681,15 +1999,225 @@ export default function Home() {
       }
       // If not a clear yes/no, fall through to backend
     }
+    if (pendingDeleteIncentiveSetRef.current) {
+      const lower = next.toLowerCase();
+      if (YES_RE.test(lower)) {
+        await executeAgentActions([{ type: "confirm_delete_incentive_set" }]);
+        return;
+      } else if (NO_RE.test(lower)) {
+        await executeAgentActions([{ type: "cancel_delete_incentive_set" }]);
+        const cancelReply = { id: `${Date.now()}-a`, role: "agent" as const, text: "Deletion cancelled.", submittedAt: formatChatTimestamp(new Date()) };
+        setAgentChatMessages((prev) => [...prev, cancelReply]);
+        return;
+      }
+    }
+    if (pendingDeleteWorkflowRef.current) {
+      const lower = next.toLowerCase();
+      if (YES_RE.test(lower)) {
+        await executeAgentActions([{ type: "confirm_delete_workflow" }]);
+        return;
+      } else if (NO_RE.test(lower)) {
+        await executeAgentActions([{ type: "cancel_delete_workflow" }]);
+        const cancelReply = { id: `${Date.now()}-a`, role: "agent" as const, text: "Deletion cancelled.", submittedAt: formatChatTimestamp(new Date()) };
+        setAgentChatMessages((prev) => [...prev, cancelReply]);
+        return;
+      }
+    }
+
+    // --- Workflow CRUD: intercept locally (LLM cannot reliably distinguish workflow vs profile) ---
+    const WORKFLOW_CREATE_RE = /^(create|add|new|make)\s+(a\s+)?(new\s+)?(custom\s+)?workflow$/i;
+    const WORKFLOW_CREATE_NAMED_RE = /^(create|add|new|make)\s+(a\s+)?(new\s+)?(custom\s+)?workflow\s+(?:called|named|:)?\s*(.+)$/i;
+    const WORKFLOW_LIST_RE = /^(list|show|my)\s+workflows?$/i;
+    const lower = next.toLowerCase().trim();
+
+    // Handle pending create-workflow conversation
+    if (pendingCreateWorkflowRef.current) {
+      const pending = pendingCreateWorkflowRef.current;
+      if (pending.step === "awaiting_name") {
+        const name = next.trim();
+        if (!name) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: "Please provide a name for the workflow.", submittedAt: formatChatTimestamp(new Date()) }]);
+          return;
+        }
+        setPendingCreateWorkflow({ step: "awaiting_description", name });
+        setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Workflow name: "${name}". Provide a description (or press Enter to skip).`, submittedAt: formatChatTimestamp(new Date()) }]);
+        return;
+      }
+      if (pending.step === "awaiting_description") {
+        const desc = (!next.trim() || /^(skip|none|no|-|n\/a)$/i.test(next.trim())) ? "" : next.trim();
+        setPendingCreateWorkflow({ step: "awaiting_detail", name: pending.name, description: desc });
+        setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Provide detail for the workflow — this is the context the Agent uses to compose the UI when the card is clicked (or press Enter to skip).`, submittedAt: formatChatTimestamp(new Date()) }]);
+        return;
+      }
+      if (pending.step === "awaiting_detail") {
+        const detail = (!next.trim() || /^(skip|none|no|-|n\/a)$/i.test(next.trim())) ? "" : next.trim();
+        setPendingCreateWorkflow(null);
+        await executeAgentActions([{ type: "create_workflow", name: pending.name, description: pending.description, detail }]);
+        return;
+      }
+    }
+
+    // Handle pending workflow action selection (user picks a number)
+    if (pendingWorkflowActionRef.current) {
+      const pending = pendingWorkflowActionRef.current;
+      const num = parseInt(next.trim(), 10);
+      if (num >= 1 && num <= pending.candidates.length) {
+        const selected = pending.candidates[num - 1];
+        setPendingWorkflowAction(null);
+        if (pending.action === "edit") {
+          // Start the edit flow — ask what to change
+          setPendingCreateWorkflow({ step: "awaiting_name" });
+          // Repurpose create flow but pre-fill with existing data for context
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Editing "${selected.name}". Enter new name (or press Enter to keep current):`, submittedAt: formatChatTimestamp(new Date()) }]);
+          // Store the workflow_id so we can update instead of create
+          pendingWorkflowActionRef.current = { action: "edit", candidates: [selected] };
+          return;
+        } else if (pending.action === "delete") {
+          setPendingDeleteWorkflow(selected.workflow_id);
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Delete workflow "${selected.name}"? Type "yes" to confirm or "no" to cancel.`, submittedAt: formatChatTimestamp(new Date()) }]);
+          return;
+        }
+      } else if (/^(cancel|back|never\s*mind|abort)$/i.test(next.trim())) {
+        setPendingWorkflowAction(null);
+        setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: "Cancelled.", submittedAt: formatChatTimestamp(new Date()) }]);
+        return;
+      }
+      // If we're in "edit" mode with a single candidate, user is providing the new name
+      if (pending.action === "edit" && pending.candidates.length === 1) {
+        const selected = pending.candidates[0];
+        const newName = (!next.trim() || /^(skip|none|no|-|n\/a)$/i.test(next.trim())) ? undefined : next.trim();
+        // Now ask for new description
+        setPendingWorkflowAction(null);
+        const editId = `${Date.now()}-edit`;
+        // Do multi-field update: ask description next
+        setAgentChatMessages((prev) => [...prev, { id: editId, role: "agent" as const, text: `Enter new description (or press Enter to keep current):`, submittedAt: formatChatTimestamp(new Date()) }]);
+        // Store state for the next two steps
+        setPendingEditWorkflow({ workflow_id: selected.workflow_id, name: newName, step: "awaiting_description" });
+        return;
+      }
+      setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Please enter a number between 1 and ${pending.candidates.length}, or "cancel".`, submittedAt: formatChatTimestamp(new Date()) }]);
+      return;
+    }
+
+    // Handle multi-step edit workflow (name → description → detail → save)
+    if (pendingEditWorkflowRef.current) {
+      const pe = pendingEditWorkflowRef.current;
+      const skip = (!next.trim() || /^(skip|none|no|-|n\/a)$/i.test(next.trim()));
+      if (pe.step === "awaiting_description") {
+        const newDesc = skip ? undefined : next.trim();
+        setPendingEditWorkflow({ ...pe, description: newDesc, step: "awaiting_detail" });
+        setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Enter new detail (or press Enter to keep current):`, submittedAt: formatChatTimestamp(new Date()) }]);
+        return;
+      }
+      if (pe.step === "awaiting_detail") {
+        const newDetail = skip ? undefined : next.trim();
+        setPendingEditWorkflow(null);
+        const body: any = {};
+        if (pe.name !== undefined) body.name = pe.name;
+        if (pe.description !== undefined) body.description = pe.description;
+        if (newDetail !== undefined) body.detail = newDetail;
+        await executeAgentActions([{ type: "update_workflow", workflow_id: pe.workflow_id, ...body }]);
+        return;
+      }
+    }
+
+    // Detect "create workflow" commands
+    const namedMatch = next.match(WORKFLOW_CREATE_NAMED_RE);
+    if (namedMatch) {
+      const name = namedMatch[5].trim();
+      setPendingCreateWorkflow({ step: "awaiting_description", name });
+      setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Workflow name: "${name}". Provide a description (or press Enter to skip).`, submittedAt: formatChatTimestamp(new Date()) }]);
+      return;
+    }
+    if (WORKFLOW_CREATE_RE.test(lower)) {
+      setPendingCreateWorkflow({ step: "awaiting_name" });
+      setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: "What would you like to name the new workflow?", submittedAt: formatChatTimestamp(new Date()) }]);
+      return;
+    }
+
+    // Detect "edit workflow" / "edit workflow N" / "edit N" (after workflow list) — list or directly select
+    const WORKFLOW_EDIT_RE = /^(edit|update|modify|rename)\s+(a\s+)?(custom\s+)?workflow(\s+(\d+))?$/i;
+    const WORKFLOW_EDIT_N_RE = /^(edit|update|modify|rename)\s+(\d+)$/i;
+    const editMatch = next.match(WORKFLOW_EDIT_RE) || next.match(WORKFLOW_EDIT_N_RE);
+    if (editMatch) {
+      const customWfs = workflows.filter((w: any) => w.workflow_id && !w.workflow_id.startsWith("builtin-"));
+      if (customWfs.length === 0) {
+        setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: "No custom workflows to edit. Create one first.", submittedAt: formatChatTimestamp(new Date()) }]);
+        return;
+      }
+      // Check if a number was provided (e.g. "edit 2" or "edit workflow 2")
+      const numStr = editMatch[5] || editMatch[2];
+      const num = numStr ? parseInt(numStr, 10) : NaN;
+      if (num >= 1 && num <= customWfs.length) {
+        // Direct selection — start edit flow for that workflow
+        const selected = customWfs[num - 1];
+        setPendingWorkflowAction({ action: "edit", candidates: [selected] });
+        setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Editing "${selected.name}". Enter new name (or press Enter to keep current):`, submittedAt: formatChatTimestamp(new Date()) }]);
+        return;
+      }
+      // No number or out of range — show list
+      setPendingWorkflowAction({ action: "edit", candidates: customWfs });
+      const lines = customWfs.map((w: any, i: number) => `${i + 1}. ${w.name}${w.description ? ` — ${w.description}` : ""}`);
+      setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Which workflow to edit?\n\n${lines.join("\n")}`, submittedAt: formatChatTimestamp(new Date()) }]);
+      return;
+    }
+
+    // Detect "delete workflow" / "delete workflow N" / "delete N" (after workflow list)
+    const WORKFLOW_DELETE_RE = /^(delete|remove)\s+(a\s+)?(custom\s+)?workflow(\s+(\d+))?$/i;
+    const WORKFLOW_DELETE_N_RE = /^(delete|remove)\s+(\d+)$/i;
+    const deleteMatch = next.match(WORKFLOW_DELETE_RE) || next.match(WORKFLOW_DELETE_N_RE);
+    if (deleteMatch) {
+      const customWfs = workflows.filter((w: any) => w.workflow_id && !w.workflow_id.startsWith("builtin-"));
+      if (customWfs.length === 0) {
+        setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: "No custom workflows to delete.", submittedAt: formatChatTimestamp(new Date()) }]);
+        return;
+      }
+      const numStr = deleteMatch[5] || deleteMatch[2];
+      const num = numStr ? parseInt(numStr, 10) : NaN;
+      if (num >= 1 && num <= customWfs.length) {
+        const selected = customWfs[num - 1];
+        setPendingDeleteWorkflow(selected.workflow_id);
+        setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Delete workflow "${selected.name}"? Type "yes" to confirm or "no" to cancel.`, submittedAt: formatChatTimestamp(new Date()) }]);
+        return;
+      }
+      setPendingWorkflowAction({ action: "delete", candidates: customWfs });
+      const lines = customWfs.map((w: any, i: number) => `${i + 1}. ${w.name}${w.description ? ` — ${w.description}` : ""}`);
+      setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: `Which workflow to delete?\n\n${lines.join("\n")}`, submittedAt: formatChatTimestamp(new Date()) }]);
+      return;
+    }
+
+    // Detect "list workflows"
+    if (WORKFLOW_LIST_RE.test(lower)) {
+      // Add header first, then the action handler appends the list to it
+      setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "agent" as const, text: "Available workflows:", submittedAt: formatChatTimestamp(new Date()) }]);
+      await executeAgentActions([{ type: "list_workflows" }]);
+      return;
+    }
 
     // Non-actionable: handle locally (skip when agent just asked something — user may be replying with short input like "8", "y", etc.)
     const lastMsg = agentChatMessages[agentChatMessages.length - 1];
     const agentJustAsked = lastMsg?.role === "agent";
-    if (!agentJustAsked && !pendingDeleteCatalogRef.current && (GREETING_RE.test(next) || isGibberish(next))) {
+    if (!agentJustAsked && !pendingDeleteCatalogRef.current && !pendingDeleteIncentiveSetRef.current && !pendingDeleteWorkflowRef.current && (GREETING_RE.test(next) || isGibberish(next))) {
       const kind = GREETING_RE.test(next) ? "greeting" : "gibberish";
       const reply = { id: `${Date.now()}-a`, role: "agent" as const, text: pickCanned(kind), submittedAt: formatChatTimestamp(new Date()) };
       setAgentChatMessages((prev) => [...prev, reply]);
       return;
+    }
+
+    // Ensure incentive set detail is loaded so the LLM has full incentive data for analysis
+    let freshIncentiveSetDetail: any = null;
+    if (!selectedIncentiveSetDetail && (selectedIncentiveSetVersion || incentiveSets.length > 0)) {
+      const versionToLoad = selectedIncentiveSetVersion || incentiveSets.find((s: any) => s.is_default)?.version || incentiveSets[0]?.version;
+      if (versionToLoad) {
+        try {
+          const url = `${CLOUD_FUNCTION_URL}/incentive_set/${versionToLoad}`;
+          const detailRes = await fetch(url);
+          if (detailRes.ok) {
+            freshIncentiveSetDetail = await detailRes.json();
+            setSelectedIncentiveSetDetail(freshIncentiveSetDetail);
+          }
+        } catch { /* proceed without detail */ }
+      }
     }
 
     // Route to backend with grid context
@@ -1697,7 +2225,7 @@ export default function Home() {
     try {
       const body: Record<string, any> = { message: next };
       // Always include grid context so the LLM can manage profiles, manipulate the grid, etc.
-      body.grid_context = buildGridContext();
+      body.grid_context = buildGridContext(freshIncentiveSetDetail ? { incentiveSetDetail: freshIncentiveSetDetail } : undefined);
       // Send recent conversation history for follow-up context (last 20 messages)
       const recentHistory = agentChatMessages.slice(-20).map((m) => ({ role: m.role === "user" ? "user" : "agent", text: m.text }));
       if (recentHistory.length > 0) body.history = recentHistory;
@@ -1803,6 +2331,7 @@ export default function Home() {
       <NavRail
         view={activeView}
         setView={(v) => {
+          if (v !== "welcome") setActiveWorkflow(null);
           setActiveView(v);
         }}
       />
@@ -1821,13 +2350,25 @@ export default function Home() {
 
             {activeView === "workflow" && (
               <WorkflowCanvas
+                workflows={workflows}
                 onTemplate={(t) => {
                   if (t.cat === "User Profiler") {
                     setActiveView("profiler");
                     setProfilerTab("test");
                   } else if (t.cat === "Profile Generator") {
+                    setActiveWorkflow(null);
                     setActiveView("welcome");
                     setGeneratorTab("optimize");
+                  } else if (t.cat === "Custom") {
+                    // Find the full workflow object to get the detail field
+                    const wf = workflows.find((w) => w.workflow_id === t.id);
+                    setActiveWorkflow({
+                      id: t.id,
+                      name: t.text,
+                      description: t.desc,
+                      detail: wf?.detail || t.desc || t.text,
+                    });
+                    setActiveView("welcome");
                   }
                 }}
               />
@@ -2052,7 +2593,80 @@ export default function Home() {
               />
               }
 
+              {/* Custom Workflow Screen */}
+              {activeView === "welcome" && activeWorkflow && (
+                <div className="space-y-4">
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div>
+                      <h3 className="text-xs font-bold tracking-wider" style={{ color: "#00aaff" }}>{activeWorkflow.name}</h3>
+                      <p className="text-[10px] mt-1" style={{ color: C.muted }}>{activeWorkflow.description}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveWorkflow(null)}
+                      className="text-[10px] tracking-wider hover:underline underline-offset-2"
+                      style={{ color: C.accentDim }}
+                    >
+                      Back
+                    </button>
+                  </div>
+
+                  {/* Incentive Set Picker */}
+                  <div className="flex flex-col gap-4 max-w-[66%]">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] tracking-wider font-semibold" style={{ color: C.muted }}>Incentive Set</label>
+                      <Dropdown
+                        value={selectedIncentiveSetVersion || ""}
+                        options={incentiveSets.map((s: any) => ({
+                          value: s.version,
+                          label: `${s.name || s.version} (${s.incentive_count} incentives)${s.is_default ? " *" : ""}`,
+                        }))}
+                        onChange={(val) => {
+                          setSelectedIncentiveSetVersion(val);
+                          loadIncentiveSetDetail(val);
+                        }}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Incentive Items */}
+                  {incentiveSetDetailLoading && (
+                    <div className="flex items-center gap-2 py-4">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: C.muted }} />
+                      <span className="text-xs" style={{ color: C.muted }}>Loading incentives…</span>
+                    </div>
+                  )}
+                  {!incentiveSetDetailLoading && selectedIncentiveSetDetail && (
+                    <div className="rounded-xl border overflow-hidden" style={{ borderColor: C.border, background: C.surface }}>
+                      <div className="px-4 py-2.5 border-b text-[10px] tracking-wider font-semibold" style={{ borderColor: C.border, color: C.muted }}>
+                        {selectedIncentiveSetDetail.name || selectedIncentiveSetDetail.version} — {(selectedIncentiveSetDetail.incentives || []).length} incentives
+                      </div>
+                      {(selectedIncentiveSetDetail.incentives || []).length === 0 ? (
+                        <p className="text-xs px-4 py-3" style={{ color: C.muted }}>No incentives in this set.</p>
+                      ) : (
+                        <div className="px-4 py-3 flex flex-wrap gap-1.5">
+                          {(selectedIncentiveSetDetail.incentives || []).map((inc: any, idx: number) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border"
+                              style={{ borderColor: C.border, background: "white", color: "black" }}
+                            >
+                              {inc.name}
+                              <span style={{ color: C.muted }}>
+                                ${Math.round((inc.estimated_annual_cost_per_user || 0) * (inc.redemption_rate || 1))}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Most Recent Optimal Incentive Program */}
+              {(activeView === "generator" || !activeWorkflow) && (
               <div className="space-y-4">
                   <h3 className="text-xs font-bold tracking-wider" style={{ color: "#00aaff" }}>Optimize Portfolio</h3>
 
@@ -2347,6 +2961,7 @@ export default function Home() {
                   </div>
                   )}
               </div>
+              )}
                 </div>
               </div>
             )}
@@ -2446,7 +3061,7 @@ export default function Home() {
                               type="submit"
                               aria-label="Submit"
                               title="Submit"
-                              disabled={!agentChatDraft.trim() || agentChatLoading}
+                              disabled={(!agentChatDraft.trim() && !pendingCreateWorkflow && !pendingWorkflowAction && !pendingEditWorkflow) || agentChatLoading}
                               className="absolute bottom-4 right-3 rounded-full bg-[#66ff99] w-8 h-8 text-black hover:opacity-80 disabled:opacity-30 flex items-center justify-center"
                             >
                               <ArrowUp className="h-4 w-4" strokeWidth={2.25} />

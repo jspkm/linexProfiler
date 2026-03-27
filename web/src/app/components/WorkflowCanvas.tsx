@@ -2,6 +2,15 @@
 
 import { C, type View } from "./theme";
 
+export interface Workflow {
+  workflow_id: string;
+  name: string;
+  description: string;
+  detail: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 interface Template {
   id: string;
   cat: string;
@@ -10,29 +19,7 @@ interface Template {
   desc: string;
 }
 
-function Badge({ text, color = C.accent }: { text: string; color?: string }) {
-  return (
-    <span
-      style={{
-        fontSize: 9,
-        color,
-        background: `${color}18`,
-        border: `1px solid ${color}33`,
-        borderRadius: 2,
-        padding: "2px 7px",
-        fontFamily: "monospace",
-      }}
-    >
-      {text}
-    </span>
-  );
-}
-
-interface WorkflowCanvasProps {
-  onTemplate: (template: Template) => void;
-}
-
-const templates: Template[] = [
+const builtinTemplates: Template[] = [
   {
     id: "t0",
     cat: "Profile Generator",
@@ -42,8 +29,12 @@ const templates: Template[] = [
   },
 ];
 
+interface WorkflowCanvasProps {
+  onTemplate: (template: Template) => void;
+  workflows: Workflow[];
+}
 
-export default function WorkflowCanvas({ onTemplate }: WorkflowCanvasProps) {
+export default function WorkflowCanvas({ onTemplate, workflows }: WorkflowCanvasProps) {
   return (
     <div style={{ height: "100%", overflow: "auto", padding: "24px 28px" }}>
       <div
@@ -64,10 +55,10 @@ export default function WorkflowCanvas({ onTemplate }: WorkflowCanvasProps) {
         </div>
       </div>
 
-      {/* LINEX Templates */}
+      {/* Built-in + User Workflows */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          {templates.map((t) => (
+          {builtinTemplates.map((t) => (
             <div
               key={t.id}
               onClick={() => onTemplate(t)}
@@ -100,6 +91,50 @@ export default function WorkflowCanvas({ onTemplate }: WorkflowCanvasProps) {
                   <p style={{ fontSize: 10, color: C.muted, margin: 0, lineHeight: 1.4 }}>
                     {t.desc}
                   </p>
+              </div>
+            </div>
+          ))}
+          {workflows.map((wf) => (
+            <div
+              key={wf.workflow_id}
+              onClick={() =>
+                onTemplate({
+                  id: wf.workflow_id,
+                  cat: "Custom",
+                  text: wf.name,
+                  icon: "⚡",
+                  desc: wf.description,
+                })
+              }
+              style={{
+                border: `1px solid ${C.border}`,
+                borderRadius: 2,
+                padding: "14px 16px",
+                background: C.surface,
+                cursor: "pointer",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = C.accent + "66";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = C.border;
+              }}
+            >
+              <div>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: C.text,
+                    margin: "0 0 4px",
+                    lineHeight: 1.4,
+                    fontWeight: 500,
+                  }}
+                >
+                  {wf.name}
+                </p>
+                <p style={{ fontSize: 10, color: C.muted, margin: 0, lineHeight: 1.4 }}>
+                  {wf.description || "Custom workflow"}
+                </p>
               </div>
             </div>
           ))}
