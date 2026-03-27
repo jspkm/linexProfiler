@@ -267,6 +267,70 @@ def fs_set_default_incentive_set(version: str) -> bool:
     return True
 
 
+def fs_update_incentive_set(
+    version: str,
+    name: str | None = None,
+    description: str | None = None,
+    incentives: list | None = None,
+) -> dict | None:
+    """Update an incentive set's metadata and/or incentives. Returns updated doc or None."""
+    db = _get_db()
+    doc_ref = db.collection(INCENTIVE_SET_COLLECTION).document(version)
+    doc = doc_ref.get()
+    if not doc.exists:
+        return None
+    updates: dict = {}
+    if name is not None:
+        updates["name"] = name.strip()
+    if description is not None:
+        updates["description"] = description.strip()
+    if incentives is not None:
+        updates["incentives"] = incentives
+        updates["incentive_count"] = len(incentives)
+    if not updates:
+        return _serialize_dates(doc.to_dict())
+    doc_ref.update(updates)
+    return _serialize_dates(doc_ref.get().to_dict())
+
+
+def fs_get_optimizations_by_incentive_set(version: str) -> list[dict]:
+    """Return optimization summaries that used a given incentive set version."""
+    db = _get_db()
+    results: list[dict] = []
+    for collection_name in [OPTIMIZATION_COLLECTION, LEGACY_OPTIMIZATION_COLLECTION]:
+        docs = (
+            db.collection(collection_name)
+            .where(filter=FieldFilter("incentive_set_version", "==", version))
+            .stream()
+        )
+        for doc in docs:
+            data = _serialize_dates(doc.to_dict())
+            optimization_id = data.get("optimization_id") or data.get("experiment_id") or doc.id
+            results.append({
+                "optimization_id": optimization_id,
+                "collection": collection_name,
+                "status": data.get("status", ""),
+                "started_at": data.get("started_at", ""),
+            })
+    return results
+
+
+def fs_delete_optimizations_by_incentive_set(version: str) -> int:
+    """Delete all optimizations that used a given incentive set version. Returns count deleted."""
+    db = _get_db()
+    deleted = 0
+    for collection_name in [OPTIMIZATION_COLLECTION, LEGACY_OPTIMIZATION_COLLECTION]:
+        docs = (
+            db.collection(collection_name)
+            .where(filter=FieldFilter("incentive_set_version", "==", version))
+            .stream()
+        )
+        for doc in docs:
+            db.collection(collection_name).document(doc.id).delete()
+            deleted += 1
+    return deleted
+
+
 def fs_delete_incentive_set(version: str) -> bool:
     """Delete an incentive set. Returns True if it existed."""
     db = _get_db()

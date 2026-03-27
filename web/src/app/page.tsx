@@ -1775,29 +1775,86 @@ export default function Home() {
           setAgentChatLoading(false);
         }
 
-      } else if (action.type === "request_delete_incentive_set") {
-        // Stage an incentive set for deletion — wait for user confirmation
+      } else if (action.type === "update_incentive_set") {
+        // Update an incentive set (blocked if used in optimization programs)
         const version = action.version || "";
-        if (version) setPendingDeleteIncentiveSet(version);
+        if (!version) continue;
+        try {
+          setAgentChatLoading(true);
+          const body: any = {};
+          if (action.name !== undefined) body.name = action.name;
+          if (action.description !== undefined) body.description = action.description;
+          if (action.incentives !== undefined) body.incentives = action.incentives;
+          const res = await fetch(`${CLOUD_FUNCTION_URL}/update_incentive_set/${version}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (res.ok) {
+            await fetchIncentiveSets();
+            if (selectedIncentiveSetVersion === version) {
+              loadIncentiveSetDetail(version);
+            }
+            setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Incentive set updated.`, submittedAt: formatChatTimestamp(new Date()) }]);
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            const errMsg = errData.error || res.statusText;
+            if (res.status === 409) {
+              setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Cannot update: this incentive set has been used to generate ${errData.optimization_count || "one or more"} incentive program(s). Create a new incentive set instead.`, submittedAt: formatChatTimestamp(new Date()) }]);
+            } else {
+              setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Failed to update incentive set: ${errMsg}`, submittedAt: formatChatTimestamp(new Date()) }]);
+            }
+          }
+        } catch (e: any) {
+          setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `Error updating incentive set: ${e.message || "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
+        } finally {
+          setAgentChatLoading(false);
+        }
+
+      } else if (action.type === "request_delete_incentive_set") {
+        // Stage an incentive set for deletion — check usage and warn about cascade
+        const version = action.version || "";
+        if (!version) continue;
+        // Check how many programs use this incentive set
+        try {
+          const usageRes = await fetch(`${CLOUD_FUNCTION_URL}/check_incentive_set_usage/${version}`);
+          if (usageRes.ok) {
+            const usageData = await usageRes.json();
+            const count = usageData.optimization_count || 0;
+            if (count > 0) {
+              // Store count for the confirmation message
+              setPendingDeleteIncentiveSet(version);
+              const setName = incentiveSets.find((s: any) => s.version === version)?.name || version.slice(0, 12);
+              setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent" as const, text: `⚠ Are you sure you want to delete incentive set "${setName}"? This will also permanently delete ${count} incentive program(s) that were generated from it. Reply yes to confirm or no to cancel.`, submittedAt: formatChatTimestamp(new Date()) }]);
+              continue;
+            }
+          }
+        } catch { /* fall through to default behavior */ }
+        setPendingDeleteIncentiveSet(version);
 
       } else if (action.type === "confirm_delete_incentive_set") {
-        // User confirmed deletion — delete incentive set
+        // User confirmed deletion — delete incentive set + cascade-delete programs
         const version = pendingDeleteIncentiveSetRef.current || action.version || "";
         if (!version) continue;
         try {
           setAgentChatLoading(true);
           const delProgressId = `${Date.now()}-del-is`;
-          setAgentChatMessages((prev) => [...prev, { id: delProgressId, role: "agent" as const, text: `Deleting incentive set ${version.slice(0, 12)}...`, submittedAt: formatChatTimestamp(new Date()) }]);
+          setAgentChatMessages((prev) => [...prev, { id: delProgressId, role: "agent" as const, text: `Deleting incentive set ${version.slice(0, 12)} and associated programs...`, submittedAt: formatChatTimestamp(new Date()) }]);
           const res = await fetch(`${CLOUD_FUNCTION_URL}/delete_incentive_set/${version}`, { method: "DELETE" });
           if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            const deletedPrograms = data.deleted_optimizations || 0;
             await fetchIncentiveSets();
             if (selectedIncentiveSetVersion === version) {
               setSelectedIncentiveSetVersion("");
               setSelectedIncentiveSetDetail(null);
             }
+            const doneText = deletedPrograms > 0
+              ? `Done. Incentive set deleted along with ${deletedPrograms} incentive program(s).`
+              : "Done. Incentive set deleted.";
             setAgentChatMessages((prev) => {
               const idx = prev.findIndex((m) => m.id === delProgressId);
-              const doneMsg = { id: `${Date.now()}-sys`, role: "agent" as const, text: "Done. Incentive set deleted.", submittedAt: formatChatTimestamp(new Date()) };
+              const doneMsg = { id: `${Date.now()}-sys`, role: "agent" as const, text: doneText, submittedAt: formatChatTimestamp(new Date()) };
               if (idx >= 0) { const copy = [...prev]; copy[idx] = { ...prev[idx], ...doneMsg }; return copy; }
               return [...prev, doneMsg];
             });

@@ -420,8 +420,10 @@ def agent_chat():
             "  GET  /api/list_incentive_sets — List all incentive sets\n"
             "  GET  /api/incentive_set?version=<v> — Get default or specific incentive set\n"
             "  POST /api/create_incentive_set — Create new incentive set\n"
+            "  POST /api/update_incentive_set/<version> — Update incentive set (blocked if used in optimizations)\n"
             "  POST /api/set_default_incentive_set/<version> — Set default incentive set\n"
-            "  DELETE /api/delete_incentive_set/<version> — Delete incentive set\n\n"
+            "  GET  /api/check_incentive_set_usage/<version> — Check if incentive set is used by optimizations\n"
+            "  DELETE /api/delete_incentive_set/<version> — Delete incentive set + cascade-delete its optimizations\n\n"
             "### MCP Server (stdio transport, FastMCP)\n"
             "Server name: \"agent\". Available tools:\n"
             "  profile_user_tool(transactions, customer_id?) — Full demographic/behavioral profile with card recommendations\n"
@@ -432,6 +434,35 @@ def agent_chat():
             "  list_available_cards_tool(region?) — List credit cards in catalog\n"
             "Resources: agent://cards/catalog — Full credit card catalog JSON\n"
             "Prompts: profile_analysis(customer_id) — Generate analysis prompt for a test user\n\n"
+            "## Incentive Set Management\n"
+            "You can manage incentive sets (CRUD) through the following actions:\n"
+            '  - list_incentive_sets: {"type":"list_incentive_sets"}\n'
+            '    Lists all available incentive sets. Synonyms: "list incentive sets", "show incentive sets", '
+            '"my incentive sets", "what incentive sets".\n'
+            '    Do NOT try to list them in the answer text — use the action so the frontend renders the list.\n'
+            '  - create_incentive_set: {"type":"create_incentive_set","name":"<NAME>","description":"<DESC>","incentives":[{"name":"<NAME>","estimated_annual_cost_per_user":<COST>,"redemption_rate":<RATE>},...], "set_as_default": false}\n'
+            '    Creates a new incentive set. Each incentive requires name, estimated_annual_cost_per_user (number), '
+            'and redemption_rate (0.0-1.0). Optionally set set_as_default to true.\n'
+            '    CRITICAL — AUTO-GENERATE INCENTIVES: Do NOT ask users to enter incentives one by one. '
+            'Ask for a name and description, then auto-generate 10-30 relevant incentives with realistic costs ($10-$500) '
+            'and redemption rates (0.1-0.9) based on industry benchmarks. If the description is too vague, ask ONE '
+            'clarifying question. Then create the set directly with the full incentives array.\n'
+            '    Do NOT ask for confirmation ("Is this ok?", "Would you like me to proceed?", etc.) — just create the set directly '
+            'and report what was created. The action executes immediately; there is no confirmation step.\n'
+            '  - update_incentive_set: {"type":"update_incentive_set","version":"<version>","name":"<NAME>","description":"<DESC>","incentives":[...]}\n'
+            '    Updates an existing incentive set. All fields except version are optional.\n'
+            '    IMPORTANT: Update is BLOCKED if the set has been used to generate incentive programs. '
+            'If blocked, inform the user and suggest creating a new set instead.\n'
+            '  - request_delete_incentive_set: {"type":"request_delete_incentive_set","version":"<version>"}\n'
+            '    Stages an incentive set for deletion. ALWAYS use this first — NEVER confirm directly.\n'
+            '    IMPORTANT: Deleting cascades to ALL incentive programs generated from it. '
+            'Warn the user in the confirmation message.\n'
+            '  - confirm_delete_incentive_set: {"type":"confirm_delete_incentive_set"}\n'
+            '    Only use when user explicitly confirms AND pending_delete_incentive_set is set.\n'
+            '  - cancel_delete_incentive_set: {"type":"cancel_delete_incentive_set"}\n'
+            '    Use when user declines deletion AND pending_delete_incentive_set is set.\n'
+            '  - set_default_incentive_set: {"type":"set_default_incentive_set","version":"<version>"}\n'
+            '    Sets an incentive set as the default.\n\n'
         )
 
         if grid_context:
@@ -538,12 +569,16 @@ def agent_chat():
                 "- Use \\n for newlines within the answer string.\n"
             )
         else:
-            system += "Respond with plain text.\n"
+            system += (
+                "For simple questions, respond with plain text. "
+                "But when executing actions (create/update/delete incentive sets, workflows, etc.), "
+                "you MUST respond with valid JSON: {\"answer\":\"<text>\",\"actions\":[...]}.\n"
+            )
 
         raw = _llm_call(system, message, history=history)
 
-        # If grid_context was sent, try to parse structured JSON response
-        if grid_context:
+        # Try to parse structured JSON response (always attempt, not just with grid_context)
+        if True:
             cleaned = raw
             if cleaned.startswith("```"):
                 cleaned = "\n".join(cleaned.split("\n")[1:])
@@ -628,6 +663,8 @@ from profile_generator.firestore_client import (
     fs_save_incentive_set, fs_load_incentive_set,
     fs_list_incentive_sets, fs_get_default_incentive_set,
     fs_set_default_incentive_set, fs_delete_incentive_set,
+    fs_update_incentive_set, fs_get_optimizations_by_incentive_set,
+    fs_delete_optimizations_by_incentive_set,
     fs_save_portfolio_dataset, fs_list_portfolio_datasets,
     fs_load_portfolio_dataset, fs_delete_portfolio_dataset_cascade,
     fs_create_portfolio_dataset_metadata,
@@ -1128,16 +1165,56 @@ def set_default_incentive_set_endpoint(version):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/linexone-dev/us-central1/update_incentive_set/<version>", methods=["POST"])
+def update_incentive_set_endpoint(version):
+    blocked = _guard_write()
+    if blocked:
+        return blocked
+    try:
+        # Guard: block update if used by any optimization
+        used_by = fs_get_optimizations_by_incentive_set(version)
+        if used_by:
+            return jsonify({
+                "error": "Cannot update: this incentive set has been used to generate incentive programs.",
+                "optimization_count": len(used_by),
+            }), 409
+        data = request.get_json(silent=True) or {}
+        raw_incentives = data.get("incentives")
+        incentives = None
+        if raw_incentives is not None:
+            incentives = [Incentive(**inc).model_dump(mode="json") for inc in raw_incentives]
+        result = fs_update_incentive_set(
+            version, name=data.get("name"), description=data.get("description"),
+            incentives=incentives,
+        )
+        if not result:
+            return jsonify({"error": "Incentive set not found"}), 404
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/linexone-dev/us-central1/delete_incentive_set/<version>", methods=["DELETE"])
 def delete_incentive_set_endpoint(version):
     blocked = _guard_write()
     if blocked:
         return blocked
     try:
+        # Cascade-delete all optimizations that used this incentive set
+        deleted_optimizations = fs_delete_optimizations_by_incentive_set(version)
         ok = fs_delete_incentive_set(version)
         if not ok:
             return jsonify({"error": "Incentive set not found"}), 404
-        return jsonify({"deleted": True})
+        return jsonify({"deleted": True, "deleted_optimizations": deleted_optimizations})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/linexone-dev/us-central1/check_incentive_set_usage/<version>", methods=["GET"])
+def check_incentive_set_usage_endpoint(version):
+    try:
+        used_by = fs_get_optimizations_by_incentive_set(version)
+        return jsonify({"version": version, "optimization_count": len(used_by), "optimizations": used_by})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1270,7 +1347,9 @@ if __name__ == "__main__":
     print("  - GET  /linexone-dev/us-central1/incentive_set")
     print("  - GET  /linexone-dev/us-central1/incentive_set/<version>")
     print("  - POST /linexone-dev/us-central1/create_incentive_set")
+    print("  - POST /linexone-dev/us-central1/update_incentive_set/<version>")
     print("  - POST /linexone-dev/us-central1/set_default_incentive_set/<version>")
+    print("  - GET  /linexone-dev/us-central1/check_incentive_set_usage/<version>")
     print("  - DEL  /linexone-dev/us-central1/delete_incentive_set/<version>")
     print("  Workflows:")
     print("  - GET  /linexone-dev/us-central1/list_workflows")

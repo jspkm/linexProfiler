@@ -280,8 +280,10 @@ def agent_chat(req: https_fn.Request) -> https_fn.Response:
             "  GET  /api/list_incentive_sets — List all incentive sets\n"
             "  GET  /api/incentive_set?version=<v> — Get default or specific incentive set\n"
             "  POST /api/create_incentive_set — Create new incentive set\n"
+            "  POST /api/update_incentive_set/<version> — Update incentive set (blocked if used in optimizations)\n"
             "  POST /api/set_default_incentive_set/<version> — Set default incentive set\n"
-            "  DELETE /api/delete_incentive_set/<version> — Delete incentive set\n\n"
+            "  GET  /api/check_incentive_set_usage/<version> — Check if incentive set is used by optimizations\n"
+            "  DELETE /api/delete_incentive_set/<version> — Delete incentive set + cascade-delete its optimizations\n\n"
             "Workflows:\n"
             "  GET  /api/list_workflows — List all workflows\n"
             "  GET  /api/get_workflow/<id> — Get a single workflow\n"
@@ -342,6 +344,58 @@ def agent_chat(req: https_fn.Request) -> https_fn.Response:
             'Correct response: {"answer":"Creating workflow \\"Customer Segmentation\\".","actions":[{"type":"create_workflow","name":"Customer Segmentation","description":"Segment customers by spending behavior"}]}\n\n'
             'User: "list workflows"\n'
             'Correct response: {"answer":"Here are the available workflows:","actions":[{"type":"list_workflows"}]}\n\n'
+            "## Incentive Set Management\n"
+            "You can manage incentive sets (CRUD) through the following actions:\n"
+            '  - list_incentive_sets: {"type":"list_incentive_sets"}\n'
+            '    Lists all available incentive sets. Synonyms: "list incentive sets", "show incentive sets", '
+            '"my incentive sets", "what incentive sets".\n'
+            '    Do NOT try to list them in the answer text — use the action so the frontend renders the list.\n'
+            '  - create_incentive_set: {"type":"create_incentive_set","name":"<NAME>","description":"<DESC>","incentives":[{"name":"<NAME>","estimated_annual_cost_per_user":<COST>,"redemption_rate":<RATE>},...], "set_as_default": false}\n'
+            '    Creates a new incentive set. Each incentive requires name, estimated_annual_cost_per_user (number), '
+            'and redemption_rate (0.0-1.0). Optionally set set_as_default to true.\n'
+            '    CRITICAL — AUTO-GENERATE INCENTIVES: When the user asks to create an incentive set, do NOT ask them to '
+            'enter each incentive one by one. Instead:\n'
+            '    1. Ask for a name and a brief description of the incentive set (e.g. "travel rewards for premium cardholders", '
+            '"cash back program for everyday spending", "student credit card perks").\n'
+            '    2. If the description is too vague to generate meaningful incentives, ask ONE clarifying question '
+            '(e.g. "What type of cardholders is this for?" or "Any spending categories to focus on?").\n'
+            '    3. Once you have enough context, USE YOUR KNOWLEDGE to generate a complete set of 10-30 relevant incentives '
+            'with realistic estimated_annual_cost_per_user ($10-$500 range) and redemption_rate (0.1-0.9) values. '
+            'Base costs and rates on industry benchmarks for credit card loyalty programs.\n'
+            '    4. Include the full incentives array in the create_incentive_set action — do NOT list them in the answer text '
+            'and ask the user to confirm each one. Just create the set directly.\n'
+            '    5. Do NOT ask for confirmation ("Is this ok?", "Would you like me to proceed?", etc.) — just create the set directly '
+            'and report what was created. The action executes immediately; there is no confirmation step.\n'
+            '    6. In your answer text, briefly summarize what you created (e.g. "Created \'Travel Premium\' with 18 incentives '
+            'covering lounge access, travel credits, insurance, and points multipliers.").\n'
+            '    Example categories to draw from: cash back tiers, points multipliers, travel benefits (lounges, upgrades, '
+            'fee credits), insurance/protection, dining/entertainment credits, streaming/subscription credits, '
+            'gas/auto benefits, shopping rewards, fee waivers, lifestyle perks.\n'
+            '  - update_incentive_set: {"type":"update_incentive_set","version":"<version>","name":"<NAME>","description":"<DESC>","incentives":[...]}\n'
+            '    Updates an existing incentive set\'s name, description, and/or incentives. All fields are optional.\n'
+            '    IMPORTANT: Update is BLOCKED if the incentive set has been used to generate one or more incentive programs '
+            '(optimization runs). If blocked, inform the user that the set cannot be modified because it has been used to '
+            'generate programs. Suggest creating a new incentive set instead.\n'
+            '    Synonyms: "edit incentive set", "rename incentive set", "update incentive set", "modify incentive set".\n'
+            '  - request_delete_incentive_set: {"type":"request_delete_incentive_set","version":"<version>"}\n'
+            '    Stages an incentive set for deletion. Use this when the user wants to delete an incentive set.\n'
+            '    ALWAYS use this first to request confirmation — NEVER use confirm_delete_incentive_set directly.\n'
+            '    IMPORTANT: Deleting an incentive set will ALSO delete ALL incentive programs (optimization runs) '
+            'that were generated using it. Your confirmation message MUST warn the user about this cascade deletion. '
+            'Example: "Are you sure you want to delete incentive set <name>? This will also delete N incentive program(s) '
+            'that were generated from it. Reply yes to confirm."\n'
+            '    The number of affected programs is available in grid_context.incentive_set_usage[version] if present.\n'
+            '  - confirm_delete_incentive_set: {"type":"confirm_delete_incentive_set"}\n'
+            '    Only use when the user explicitly confirms deletion AND pending_delete_incentive_set is set.\n'
+            '  - cancel_delete_incentive_set: {"type":"cancel_delete_incentive_set"}\n'
+            '    Use when user declines deletion AND pending_delete_incentive_set is set.\n'
+            '  - set_default_incentive_set: {"type":"set_default_incentive_set","version":"<version>"}\n'
+            '    Sets an incentive set as the default. Use when user says "set default", "make default", etc.\n'
+            '  - When listing incentive sets, NUMBER them starting from 1. Users can reference by number in follow-ups.\n'
+            '  - When user says "delete <N>" after listing incentive sets, resolve the number to the version '
+            'from available_incentive_sets and use request_delete_incentive_set.\n'
+            '  - When user says "edit <N>" or "update <N>" after listing incentive sets, resolve the number to the version '
+            'from available_incentive_sets and use update_incentive_set.\n\n'
         )
 
         if grid_context:
@@ -418,32 +472,6 @@ def agent_chat(req: https_fn.Request) -> https_fn.Response:
                 'This is a non-destructive operation. Keep the answer brief, e.g. "Starting optimization."\n'
                 '    CRITICAL: You MUST include the run_optimization action in the actions array. '
                 'Without it, nothing happens — the answer text alone does NOT trigger the optimization.\n\n'
-                "## Incentive Set Management\n"
-                "You can manage incentive sets (CRUD) through the following actions:\n"
-                '  - list_incentive_sets: {"type":"list_incentive_sets"}\n'
-                '    Lists all available incentive sets. Synonyms: "list incentive sets", "show incentive sets", '
-                '"my incentive sets", "what incentive sets".\n'
-                '    Do NOT try to list them in the answer text — use the action so the frontend renders the list.\n'
-                '  - create_incentive_set: {"type":"create_incentive_set","name":"<NAME>","description":"<DESC>","incentives":[{"name":"<NAME>","estimated_annual_cost_per_user":<COST>,"redemption_rate":<RATE>},...], "set_as_default": false}\n'
-                '    Creates a new incentive set. Each incentive requires name, estimated_annual_cost_per_user (number), '
-                'and redemption_rate (0.0-1.0). Optionally set set_as_default to true.\n'
-                '    When the user asks to create an incentive set, gather the necessary details: name, and the list of incentives.\n'
-                '    If the user provides incentive names without costs/rates, use reasonable defaults '
-                '(e.g., cost ~$50-200, redemption_rate ~0.3-0.8 depending on the incentive type).\n'
-                '  - request_delete_incentive_set: {"type":"request_delete_incentive_set","version":"<version>"}\n'
-                '    Stages an incentive set for deletion. Use this when the user wants to delete an incentive set.\n'
-                '    ALWAYS use this first to request confirmation — NEVER use confirm_delete_incentive_set directly.\n'
-                '    Your answer MUST ask the user to confirm (e.g. "Are you sure you want to delete incentive set <name>? '
-                'Reply yes to confirm.").\n'
-                '  - confirm_delete_incentive_set: {"type":"confirm_delete_incentive_set"}\n'
-                '    Only use when the user explicitly confirms deletion AND pending_delete_incentive_set is set.\n'
-                '  - cancel_delete_incentive_set: {"type":"cancel_delete_incentive_set"}\n'
-                '    Use when user declines deletion AND pending_delete_incentive_set is set.\n'
-                '  - set_default_incentive_set: {"type":"set_default_incentive_set","version":"<version>"}\n'
-                '    Sets an incentive set as the default. Use when user says "set default", "make default", etc.\n'
-                '  - When listing incentive sets, NUMBER them starting from 1. Users can reference by number in follow-ups.\n'
-                '  - When user says "delete <N>" after listing incentive sets, resolve the number to the version '
-                'from available_incentive_sets and use request_delete_incentive_set.\n\n'
                 "## Incentive Analysis & Categorization\n"
                 "You have FULL access to the incentive set data in grid_context.incentive_set.incentives. "
                 "Each incentive has: name, estimated_annual_cost_per_user, redemption_rate, effective_cost.\n"
@@ -495,8 +523,9 @@ def agent_chat(req: https_fn.Request) -> https_fn.Response:
             )
         else:
             system += (
-                "Respond with plain text for simple questions. "
-                "When using workflow actions, respond with valid JSON: "
+                "For simple questions, respond with plain text. "
+                "But when executing actions (create/update/delete incentive sets, workflows, etc.), "
+                "you MUST respond with valid JSON: "
                 '{"answer":"<text>","actions":[...]}.\n'
             )
 
@@ -514,13 +543,13 @@ def agent_chat(req: https_fn.Request) -> https_fn.Response:
             model=MODEL,
             contents=contents,
             config=types.GenerateContentConfig(
-                system_instruction=system, temperature=0.3, max_output_tokens=2000,
+                system_instruction=system, temperature=0.3, max_output_tokens=4000,
             ),
         )
         raw = response.text.strip()
 
-        # If grid_context was sent, try to parse structured JSON response
-        if grid_context:
+        # Try to parse structured JSON response (always attempt, not just with grid_context)
+        if True:
             # Strip markdown code fences if present
             cleaned = raw
             if cleaned.startswith("```"):
@@ -1360,22 +1389,84 @@ def set_default_incentive_set_fn(req: https_fn.Request) -> https_fn.Response:
 
 
 @https_fn.on_request(cors=_CORS_ALL)
-def delete_incentive_set_fn(req: https_fn.Request) -> https_fn.Response:
-    """Delete an incentive set."""
+def update_incentive_set_fn(req: https_fn.Request) -> https_fn.Response:
+    """Update an incentive set. Blocked if the set has been used to generate optimizations."""
     if req.method == "OPTIONS":
         return https_fn.Response(status=204)
     blocked = _guard_write()
     if blocked:
         return blocked
     try:
-        from profile_generator.firestore_client import fs_delete_incentive_set
+        from profile_generator.firestore_client import (
+            fs_update_incentive_set, fs_get_optimizations_by_incentive_set,
+        )
+        version = _extract_path_param(req, "update_incentive_set")
+        if not version:
+            return _json_response({"error": "Missing version"}, 400)
+        # Guard: block update if used by any optimization
+        used_by = fs_get_optimizations_by_incentive_set(version)
+        if used_by:
+            return _json_response({
+                "error": "Cannot update: this incentive set has been used to generate incentive programs.",
+                "optimization_count": len(used_by),
+            }, 409)
+        data = req.get_json(silent=True) or {}
+        from models.incentive_set import Incentive
+        raw_incentives = data.get("incentives")
+        incentives = None
+        if raw_incentives is not None:
+            incentives = [Incentive(**inc).model_dump(mode="json") for inc in raw_incentives]
+        result = fs_update_incentive_set(
+            version, name=data.get("name"), description=data.get("description"),
+            incentives=incentives,
+        )
+        if not result:
+            return _json_response({"error": "Incentive set not found"}, 404)
+        return _json_response(result)
+    except Exception as e:
+        return _json_response({"error": str(e)}, 500)
+
+
+@https_fn.on_request(cors=_CORS_ALL)
+def delete_incentive_set_fn(req: https_fn.Request) -> https_fn.Response:
+    """Delete an incentive set and all optimizations generated from it."""
+    if req.method == "OPTIONS":
+        return https_fn.Response(status=204)
+    blocked = _guard_write()
+    if blocked:
+        return blocked
+    try:
+        from profile_generator.firestore_client import (
+            fs_delete_incentive_set, fs_get_optimizations_by_incentive_set,
+            fs_delete_optimizations_by_incentive_set,
+        )
         version = _extract_path_param(req, "delete_incentive_set")
         if not version:
             return _json_response({"error": "Missing version"}, 400)
+        # Check for dependent optimizations (for info endpoint)
+        used_by = fs_get_optimizations_by_incentive_set(version)
+        # Cascade-delete all optimizations that used this incentive set
+        deleted_optimizations = fs_delete_optimizations_by_incentive_set(version)
         ok = fs_delete_incentive_set(version)
         if not ok:
             return _json_response({"error": "Incentive set not found"}, 404)
-        return _json_response({"deleted": True})
+        return _json_response({"deleted": True, "deleted_optimizations": deleted_optimizations})
+    except Exception as e:
+        return _json_response({"error": str(e)}, 500)
+
+
+@https_fn.on_request(cors=_CORS_ALL)
+def check_incentive_set_usage_fn(req: https_fn.Request) -> https_fn.Response:
+    """Check if an incentive set has been used to generate any optimizations."""
+    if req.method == "OPTIONS":
+        return https_fn.Response(status=204)
+    try:
+        from profile_generator.firestore_client import fs_get_optimizations_by_incentive_set
+        version = _extract_path_param(req, "check_incentive_set_usage")
+        if not version:
+            return _json_response({"error": "Missing version"}, 400)
+        used_by = fs_get_optimizations_by_incentive_set(version)
+        return _json_response({"version": version, "optimization_count": len(used_by), "optimizations": used_by})
     except Exception as e:
         return _json_response({"error": str(e)}, 500)
 
