@@ -398,6 +398,14 @@ def delete_optimize_endpoint(optimization_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/linexone-dev/us-central1/export_deal_memo/<optimization_id>", methods=["POST"])
+def export_deal_memo_endpoint(optimization_id):
+    try:
+        return _resp(h_optimize.handle_export_deal_memo(optimization_id))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ---------------------------------------------------------------------------
 # Incentive sets
 # ---------------------------------------------------------------------------
