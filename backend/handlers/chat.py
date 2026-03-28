@@ -9,6 +9,45 @@ import re
 from handlers._common import get_source_snippets, handler, llm_call
 
 
+_BUDGET_KEYWORDS = re.compile(r'\b(budget|spend|cap|spending\s*cap|cost\s*limit|spend\s*limit|no\s*more\s*than)\b', re.IGNORECASE)
+_TARGET_LTV_KEYWORDS = re.compile(r'\b(target\s*(ltv|final|net|value|portfolio)|final\s*ltv|net\s*ltv|target\s+of)\b', re.IGNORECASE)
+
+
+def _parse_dollar_amount(message: str) -> float | None:
+    """Parse a dollar amount from text. Returns None if not found."""
+    msg = message.lower().replace(",", "")
+    m = re.search(r'\$\s*([\d.]+)\s*(m(?:illion)?|k|b(?:illion)?)\b', msg)
+    if m:
+        val = float(m.group(1))
+        unit = m.group(2)[0]
+        if unit == 'k':
+            return val * 1_000
+        elif unit == 'm':
+            return val * 1_000_000
+        elif unit == 'b':
+            return val * 1_000_000_000
+    m = re.search(r'\$\s*([\d]+(?:\.[\d]+)?)', msg)
+    if m:
+        val = float(m.group(1))
+        if val >= 1000:
+            return val
+    return None
+
+
+def _extract_budget(message: str) -> float | None:
+    """Extract a dollar budget from the user's message."""
+    if not _BUDGET_KEYWORDS.search(message):
+        return None
+    return _parse_dollar_amount(message)
+
+
+def _extract_target_ltv(message: str) -> float | None:
+    """Extract a target LTV from the user's message."""
+    if not _TARGET_LTV_KEYWORDS.search(message):
+        return None
+    return _parse_dollar_amount(message)
+
+
 @handler
 def handle_agent_chat(data: dict) -> tuple[dict, int]:
     """Process an agent_chat request and return ``(response_dict, status_code)``.
@@ -44,6 +83,14 @@ def handle_agent_chat(data: dict) -> tuple[dict, int]:
         "credit card incentive programs, and profile segmentation. "
         "Always refer to yourself as 'the Agent' (never 'I' or 'an assistant'). "
         "Keep answers brief and direct. Use plain language.\n\n"
+        "## Capabilities\n"
+        "The Agent supports Monte Carlo optimization with optional budget constraints and target LTV goals. "
+        "When a user specifies a budget or spending cap (e.g. '$1M budget'), "
+        "include budget in run_optimization. "
+        "When a user specifies a target LTV or final portfolio value (e.g. 'target ltv of $5M'), "
+        "include target_ltv in run_optimization. "
+        "NEVER say you cannot set a budget or target LTV. You DO support both "
+        "via the budget and target_ltv fields in run_optimization.\n\n"
         "## Conversational Context\n"
         "You receive the recent conversation history. ALWAYS interpret the user's message in context of the prior exchange. "
         "If the Agent just asked a question (e.g. 'How many clusters?'), the user's next message is a RESPONSE to that question — "
@@ -302,38 +349,59 @@ def handle_agent_chat(data: dict) -> tuple[dict, int]:
             '    ALWAYS ask for confirmation first — state which program will be deleted.\n'
             '    Context: "delete program" or "delete <number>" after a list refers to an optimization program, '
             'NOT a profile. Only use request_delete_profile when the user explicitly says "delete profile".\n'
-            '  - run_optimization: {"type":"run_optimization","catalog_version":"<optional>","incentive_set_version":"<optional>"}\n'
-            '    Starts a new Optimal Incentive Program run (convergence-based LTV optimization).\n'
+            '  - run_optimization: {"type":"run_optimization","catalog_version":"<optional>","incentive_set_version":"<optional>","budget":<optional number>,"target_ltv":<optional number>}\n'
+            '    Starts a Monte Carlo optimization run to find optimal incentive programs.\n'
             '    Uses the currently selected profile and incentive set if not specified.\n'
+            '    BUDGET: If the user mentions a budget/spending cap, include budget as dollars.\n'
+            '    TARGET LTV: If the user mentions a target LTV/final value/net value, include target_ltv as dollars.\n'
+            '    Convert shorthand: "$1M"=1000000, "$500k"=500000, "$2.5 million"=2500000.\n'
             '    Check grid_context.is_busy — if true, tell the user to wait.\n'
             '    Synonyms the user may use: "run", "generate", "create", "analyze", "optimize", "start", "go", "execute".\n'
             '    When the user says any of these in the context of the Optimal Incentive Program, '
             'incentive optimization, or just "program", they mean run_optimization.\n'
             '    Examples: "run the program", "generate optimal incentives", "create a new program", '
-            '"analyze this profile", "optimize", "run optimization", "start a new run".\n'
+            '"analyze this profile", "optimize", "run optimization", "start a new run", '
+            '"optimize with $1M budget".\n'
             '    Do NOT ask for confirmation — just include the action and start immediately. '
-            'This is a non-destructive operation. Keep the answer brief, e.g. "Starting optimization."\n'
+            'This is a non-destructive operation. Keep the answer brief, e.g. "Starting Monte Carlo optimization."\n'
             '    CRITICAL: You MUST include the run_optimization action in the actions array. '
             'Without it, nothing happens — the answer text alone does NOT trigger the optimization.\n\n'
             "## Response Rules\n"
             "- NEVER reveal backend implementation details: do NOT mention model names (Gemini, GPT, etc.), "
             "function names (evaluate_incentive_bundle, _enforce_baseline, etc.), variable names, code references, "
             "or that an LLM is used internally. Describe the methodology in DOMAIN terms only: "
-            "'the optimizer evaluates...', 'a simulation run tests...', 'the convergence check measures...', "
+            "'the Monte Carlo optimizer evaluates...', 'the simulation samples uptake rates...', "
             "'a Bayesian risk model adjusts...'. The user should understand the process without knowing the tech stack.\n"
             "- METHODOLOGY vs DEFINITION: When a user asks 'how was X derived/computed/calculated', or asks about "
             "the process/method/algorithm, they want the METHODOLOGY — the full process that produced the result. "
             "Use the source code to understand the algorithm, but explain it in domain language. Key aspects to cover:\n"
-            "  * The simulation: how many iterations were run, what was tested each iteration\n"
-            "  * Convergence: how the optimizer determined the result was stable (triple-gate: coefficient of variation, "
-            "trend slope, normalized range — explain what these mean practically)\n"
-            "  * Selection logic: why these specific incentives were kept (risk-adjusted marginal exceeded cost gate) "
-            "and what was dropped\n"
-            "  * Risk adjustment: Bayesian uptake blending, lower confidence bound, how this discounts uncertain incentives\n"
-            "  * Baseline protection: the optimizer rejects any bundle that performs worse than no incentives at all\n"
+            "  * Monte Carlo simulation: N draws per bundle, uptake rates sampled from Beta distributions\n"
+            "  * Bundle selection: highest median (p50) net LTV subject to baseline enforcement (p5 >= 95% of baseline)\n"
+            "  * Confidence: 90% CI from p5-p95 percentiles. P(Lift>0) = fraction of draws where net LTV > baseline\n"
+            "  * Risk adjustment: Bayesian Beta-Binomial priors from redemption rates, updated with observed data\n"
+            "  * Sensitivity: how results change when assumptions (uptake, cost) vary +/- 20%\n"
             "  * For profile-specific questions, reference ACTUAL data: which incentives were assigned, their costs, "
-            "the lift achieved, population impact\n"
+            "the lift achieved, confidence intervals, population impact\n"
             "A definition question ('what is X') gets a brief answer. A methodology question gets a process-level answer.\n"
+            "\n## Monte Carlo Analytical Queries\n"
+            "When the optimization used the monte_carlo engine, you can answer these query types:\n"
+            "- Segment comparison: compare profiles on any metric from the results\n"
+            "- Sensitivity analysis: reference the sensitivity_analysis data to explain assumption impacts\n"
+            "- Cost-benefit: compute ROI per incentive dollar using expected_cost and expected_lift\n"
+            "- Ranking: rank profiles by uplift potential, probability of positive lift, or ROI\n"
+            "- What-if: describe how changing uptake or cost assumptions would affect results\n"
+            "- Summary: summarize key findings for investor meeting\n"
+            "Use percentiles, confidence_interval_90, and probability_positive_lift from the results.\n"
+            "\n## Report Configuration Actions\n"
+            "When the user asks to save, load, or customize report views:\n"
+            '- save_report_config: {"type":"save_report_config","name":"<NAME>","columns":[<current custom columns>]}\n'
+            '  Saves the current grid column configuration for later reuse.\n'
+            '- load_report_config: {"type":"load_report_config","config_id":"<ID>"}\n'
+            '  Loads and applies a saved report configuration.\n'
+            '- update_chart_config: {"type":"update_chart_config","chart_type":"bar|line|heatmap","data_source":"lift|net_ltv|cost|probability_positive_lift","group_by":"profile_id"}\n'
+            '  Creates or updates a chart visualization.\n'
+            '- update_layout: {"type":"update_layout","show_sensitivity":true|false,"show_percentiles":true|false,"compact":true|false}\n'
+            '  Toggles visibility of UI sections.\n'
             "- When explaining the process, reference ACTUAL data: K value, profile count, population sizes, "
             "incentive names and costs, convergence parameters, and specific results.\n"
             "- Use monospace/ASCII tables or bar charts in your answer when they help illustrate data.\n"
@@ -373,6 +441,12 @@ def handle_agent_chat(data: dict) -> tuple[dict, int]:
     raw = llm_call(system, contents, temperature=0.3, max_output_tokens=4000)
 
     # ------------------------------------------------------------------ #
+    # Budget injection: if user mentioned a budget, ensure it's in the action
+    # ------------------------------------------------------------------ #
+    user_budget = _extract_budget(message)
+    user_target_ltv = _extract_target_ltv(message)
+
+    # ------------------------------------------------------------------ #
     # Parse structured JSON response
     # ------------------------------------------------------------------ #
 
@@ -384,10 +458,12 @@ def handle_agent_chat(data: dict) -> tuple[dict, int]:
         cleaned = "\n".join(cleaned.split("\n")[:-1])
     cleaned = cleaned.strip()
 
+    result_dict: dict | None = None
+
     try:
         parsed = json.loads(cleaned)
         if isinstance(parsed, dict) and "answer" in parsed:
-            return (parsed, 200)
+            result_dict = parsed
     except json.JSONDecodeError:
         # Try to extract JSON object from within the text
         m = re.search(r'\{[\s\S]*"answer"\s*:', cleaned)
@@ -407,34 +483,76 @@ def handle_agent_chat(data: dict) -> tuple[dict, int]:
                 try:
                     parsed = json.loads(candidate[:end + 1])
                     if isinstance(parsed, dict) and "answer" in parsed:
-                        return (parsed, 200)
+                        result_dict = parsed
                 except json.JSONDecodeError:
                     pass
 
-    # Check if the raw text contains a trailing JSON with actions
-    actions_idx = raw.find('"actions"')
-    if actions_idx >= 0:
-        brace_start = raw.rfind('{', 0, actions_idx)
-        if brace_start >= 0:
-            depth, end = 0, -1
-            for i in range(brace_start, len(raw)):
-                if raw[i] == '{':
-                    depth += 1
-                elif raw[i] == '}':
-                    depth -= 1
-                    if depth == 0:
-                        end = i
-                        break
-            if end > 0:
-                try:
-                    actions_obj = json.loads(raw[brace_start:end + 1])
-                    if isinstance(actions_obj, dict) and "actions" in actions_obj:
-                        answer_text = raw[:brace_start].strip()
-                        if not answer_text:
-                            answer_text = actions_obj.get("answer", "")
-                        result = {"answer": answer_text, "actions": actions_obj["actions"]}
-                        return (result, 200)
-                except json.JSONDecodeError:
-                    pass
+    if result_dict is None:
+        # Check if the raw text contains a trailing JSON with actions
+        actions_idx = raw.find('"actions"')
+        if actions_idx >= 0:
+            brace_start = raw.rfind('{', 0, actions_idx)
+            if brace_start >= 0:
+                depth, end = 0, -1
+                for i in range(brace_start, len(raw)):
+                    if raw[i] == '{':
+                        depth += 1
+                    elif raw[i] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            end = i
+                            break
+                if end > 0:
+                    try:
+                        actions_obj = json.loads(raw[brace_start:end + 1])
+                        if isinstance(actions_obj, dict) and "actions" in actions_obj:
+                            answer_text = raw[:brace_start].strip()
+                            if not answer_text:
+                                answer_text = actions_obj.get("answer", "")
+                            result_dict = {"answer": answer_text, "actions": actions_obj["actions"]}
+                    except json.JSONDecodeError:
+                        pass
 
-    return ({"answer": raw}, 200)
+    if result_dict is None:
+        result_dict = {"answer": raw}
+
+    # ------------------------------------------------------------------ #
+    # Post-processing: inject budget/target_ltv into run_optimization actions,
+    # or force-create the action if the LLM refused
+    # ------------------------------------------------------------------ #
+    has_constraint = user_budget is not None or user_target_ltv is not None
+    if has_constraint:
+        actions = result_dict.get("actions", [])
+        has_optimize_action = any(
+            isinstance(a, dict) and a.get("type") == "run_optimization"
+            for a in actions
+        )
+
+        if has_optimize_action:
+            for a in actions:
+                if isinstance(a, dict) and a.get("type") == "run_optimization":
+                    if user_budget is not None:
+                        a["budget"] = user_budget
+                    if user_target_ltv is not None:
+                        a["target_ltv"] = user_target_ltv
+        else:
+            optimize_keywords = {"optimize", "optim", "run", "budget", "program", "target"}
+            msg_lower = message.lower()
+            if any(kw in msg_lower for kw in optimize_keywords):
+                action_obj: dict = {"type": "run_optimization"}
+                if user_budget is not None:
+                    action_obj["budget"] = user_budget
+                if user_target_ltv is not None:
+                    action_obj["target_ltv"] = user_target_ltv
+                result_dict["actions"] = actions + [action_obj]
+                parts = []
+                if user_budget is not None:
+                    parts.append(f"${user_budget:,.0f} budget")
+                if user_target_ltv is not None:
+                    parts.append(f"${user_target_ltv:,.0f} target LTV")
+                constraint_desc = " and ".join(parts)
+                result_dict["answer"] = (
+                    f"Starting Monte Carlo optimization with {constraint_desc}."
+                )
+
+    return (result_dict, 200)

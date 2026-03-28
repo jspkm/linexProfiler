@@ -31,20 +31,20 @@ fi
 
 cred_path=""
 if [[ -f "$DEV_ENV_FILE" ]]; then
-  cred_path="$(awk -F= '/^FIREBASE_CREDENTIALS_PATH=/{sub(/^[[:space:]]+/, "", $2); print $2}' "$DEV_ENV_FILE" | tail -n 1)"
+  cred_path="$(awk -F= '/^LINEX_CREDENTIALS_PATH=/{sub(/^[[:space:]]+/, "", $2); print $2}' "$DEV_ENV_FILE" | tail -n 1)"
 fi
 if [[ -f "$ENV_FILE" ]]; then
-  env_cred_path="$(awk -F= '/^FIREBASE_CREDENTIALS_PATH=/{sub(/^[[:space:]]+/, "", $2); print $2}' "$ENV_FILE" | tail -n 1)"
+  env_cred_path="$(awk -F= '/^LINEX_CREDENTIALS_PATH=/{sub(/^[[:space:]]+/, "", $2); print $2}' "$ENV_FILE" | tail -n 1)"
   if [[ -n "$env_cred_path" ]]; then
     cred_path="$env_cred_path"
   fi
 fi
 if [[ -z "$cred_path" ]]; then
-  fail "FIREBASE_CREDENTIALS_PATH is not set in backend/.env.dev or backend/.env"
+  fail "LINEX_CREDENTIALS_PATH is not set in backend/.env.dev or backend/.env"
 fi
 
 if [[ ! -f "$cred_path" ]]; then
-  fail "FIREBASE_CREDENTIALS_PATH does not exist: $cred_path"
+  fail "LINEX_CREDENTIALS_PATH does not exist: $cred_path"
 fi
 
 printf 'dev:check ok\n'

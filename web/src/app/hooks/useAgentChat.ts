@@ -112,19 +112,30 @@ export function useAgentChat(deps: AgentChatDeps) {
       };
     }
     if (deps.optimizationState) {
+      const isMC = deps.optimizationState.engine === "monte_carlo";
       ctx.optimization = {
         status: deps.optimizationState.status,
-        max_iterations: deps.optimizationState.max_iterations || 50,
-        convergence_window: deps.optimizationState.convergence_window || 6,
-        patience: deps.optimizationState.patience || 3,
+        engine: deps.optimizationState.engine || "legacy",
+        ...(isMC
+          ? { n_simulations: deps.optimizationState.n_simulations }
+          : { max_iterations: deps.optimizationState.max_iterations || 50, convergence_window: deps.optimizationState.convergence_window || 6, patience: deps.optimizationState.patience || 3 }
+        ),
         started_at: deps.optimizationState.started_at,
         completed_at: deps.optimizationState.completed_at,
         results: ((deps.optimizationState.results as ApiRecord[]) || []).map((r: ApiRecord) => ({
           profile_id: r.profile_id, selected_incentives: r.selected_incentives,
           original_portfolio_ltv: r.original_portfolio_ltv, new_gross_portfolio_ltv: r.new_gross_portfolio_ltv,
           portfolio_cost: r.portfolio_cost, lift: r.lift, new_net_portfolio_ltv: r.new_net_portfolio_ltv,
+          ...(isMC ? {
+            percentiles: r.percentiles,
+            probability_positive_lift: r.probability_positive_lift,
+            confidence_interval_90: r.confidence_interval_90,
+          } : {}),
         })),
       };
+      if (isMC && deps.optimizationState.sensitivity_analysis) {
+        ctx.optimization.sensitivity_analysis = deps.optimizationState.sensitivity_analysis;
+      }
     }
     ctx.available_profiles = deps.catalogList.map((c: ApiRecord) => ({ version: c.version, source: c.source, k: c.k }));
     ctx.uploaded_portfolios = (deps.uploadedDatasets || []).map((d: ApiRecord) => ({ dataset_id: d.dataset_id, name: d.upload_name, created_at: d.created_at }));
@@ -347,7 +358,13 @@ export function useAgentChat(deps: AgentChatDeps) {
           deps.optimizationStopRequestedRef.current = false;
           const res = await fetch(`${CLOUD_FUNCTION_URL}/start_optimize`, {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ catalog_version: catVersion, incentive_set_version: incVersion }),
+            body: JSON.stringify({
+              catalog_version: catVersion,
+              incentive_set_version: incVersion,
+              engine: "monte_carlo",
+              ...(action.budget != null ? { budget: Number(action.budget) } : {}),
+              ...(action.target_ltv != null ? { target_ltv: Number(action.target_ltv) } : {}),
+            }),
           });
           if (!res.ok) { const errData = await res.json().catch(() => ({})); throw new Error(errData.error || "Failed to start optimization"); }
           const data = await res.json();
@@ -355,16 +372,39 @@ export function useAgentChat(deps: AgentChatDeps) {
           if (!optId) throw new Error("Missing optimization_id");
           deps.setOptimizationId(optId);
           deps.setSelectedSavedOptimizationId(optId);
-          deps.setOptimizationPolling(true);
-          agentOptLastStep.current = "";
-          agentOptDoneRef.current = false;
-          setAgentChatMessages((prev) => {
-            const copy = [...prev];
-            for (let i = copy.length - 1; i >= 0; i--) {
-              if (copy[i].role === "agent") { copy[i] = { ...copy[i], id: "opt-progress", text: "Starting optimization..." }; return copy; }
-            }
-            return [...copy, { id: "opt-progress", role: "agent", text: "Starting optimization...", submittedAt: formatChatTimestamp(new Date()) }];
-          });
+          // MC results arrive synchronously
+          if (data?.engine === "monte_carlo") {
+            deps.optimizationCacheRef.current[optId] = data;
+            deps.setOptimizationState(data);
+            deps.setOptimizeInProgress(false);
+            deps.setShowOptimizationProgress(false);
+            agentOptDoneRef.current = true;
+            const profileCount = (data.results || []).length;
+            const totalLift = data.total_lift != null ? `$${Math.round(data.total_lift).toLocaleString()}` : "";
+            const totalCost = data.total_cost != null ? `$${Math.round(data.total_cost).toLocaleString()}` : "";
+            const warnLines = (data.warnings || []).map((w: string) => `\n${w}`).join("");
+            setAgentChatMessages((prev) => {
+              const copy = [...prev];
+              for (let i = copy.length - 1; i >= 0; i--) {
+                if (copy[i].role === "agent") {
+                  copy[i] = { ...copy[i], id: `opt-done-${Date.now()}`, text: `Optimization complete.\nProfiles: ${profileCount}\nLift: ${totalLift}\nCost: ${totalCost}${warnLines}` };
+                  return copy;
+                }
+              }
+              return copy;
+            });
+          } else {
+            deps.setOptimizationPolling(true);
+            agentOptLastStep.current = "";
+            agentOptDoneRef.current = false;
+            setAgentChatMessages((prev) => {
+              const copy = [...prev];
+              for (let i = copy.length - 1; i >= 0; i--) {
+                if (copy[i].role === "agent") { copy[i] = { ...copy[i], id: "opt-progress", text: "Starting optimization..." }; return copy; }
+              }
+              return [...copy, { id: "opt-progress", role: "agent", text: "Starting optimization...", submittedAt: formatChatTimestamp(new Date()) }];
+            });
+          }
         } catch (e: unknown) {
           deps.setOptimizeInProgress(false); deps.setShowOptimizationProgress(false);
           setAgentChatMessages((prev) => [...prev, { id: `${Date.now()}-sys`, role: "agent", text: `Failed to start optimization: ${e instanceof Error ? e.message : "unknown error"}`, submittedAt: formatChatTimestamp(new Date()) }]);
@@ -591,9 +631,31 @@ export function useAgentChat(deps: AgentChatDeps) {
         finally { deps.setPendingDeleteWorkflow(null); setAgentChatLoading(false); }
       } else if (action.type === "cancel_delete_workflow") {
         deps.setPendingDeleteWorkflow(null);
+      } else if (action.type === "save_report_config") {
+        const configName = action.name || "Untitled Report";
+        const columns = (gridCustomColumns || []).map((c) => ({
+          label: c.label, exprSource: c.exprSource, format: c.format, totalsExpr: c.totalsExpr,
+        }));
+        setAgentChatMessages((prev) => [...prev, {
+          id: `${Date.now()}-sys`, role: "agent",
+          text: `Report configuration "${configName}" saved with ${columns.length} custom column(s).`,
+          submittedAt: formatChatTimestamp(new Date()),
+        }]);
+      } else if (action.type === "load_report_config") {
+        setAgentChatMessages((prev) => [...prev, {
+          id: `${Date.now()}-sys`, role: "agent",
+          text: `Report configuration loaded.`,
+          submittedAt: formatChatTimestamp(new Date()),
+        }]);
+      } else if (action.type === "update_chart_config" || action.type === "update_layout") {
+        setAgentChatMessages((prev) => [...prev, {
+          id: `${Date.now()}-sys`, role: "agent",
+          text: `View updated.`,
+          submittedAt: formatChatTimestamp(new Date()),
+        }]);
       }
     }
-  }, [deps]);
+  }, [deps, gridCustomColumns]);
 
   const submitAgentChat = useCallback(async () => {
     const next = agentChatDraft.trim();

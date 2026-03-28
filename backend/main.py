@@ -347,6 +347,18 @@ def delete_optimize_fn(req: https_fn.Request) -> https_fn.Response:
         return _resp({"error": str(e)}, 500)
 
 
+@https_fn.on_request(cors=_CORS_ALL, timeout_sec=60)
+def export_deal_memo(req: https_fn.Request) -> https_fn.Response:
+    if req.method == "OPTIONS":
+        return https_fn.Response(status=204)
+    try:
+        from handlers.optimize import handle_export_deal_memo
+        optimization_id = _extract_path_param(req, "export_deal_memo") or ""
+        return _resp(handle_export_deal_memo(optimization_id))
+    except Exception as e:
+        return _resp({"error": str(e)}, 500)
+
+
 # ==================== Incentive Set endpoints ====================
 
 

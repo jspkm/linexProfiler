@@ -9,7 +9,7 @@ interface NavRailProps {
 }
 
 const items: { id: View; icon: string; label: string }[] = [
-  { id: "welcome", icon: "⌂", label: "Home" },
+  { id: "terminal", icon: "⌂", label: "Home" },
   { id: "workflow", icon: "◇", label: "Workflow" },
   { id: "dataroom", icon: "📁", label: "Dataroom" },
 ];
@@ -104,13 +104,9 @@ export default function NavRail({ view, setView }: NavRailProps) {
             cursor: "pointer",
             fontSize: 14,
             position: "relative",
-            background:
-              (view === it.id || (it.id === "welcome" && view === "generator")) ? "rgba(113,124,119,0.24)" : "transparent",
-            border:
-              (view === it.id || (it.id === "welcome" && view === "generator"))
-                ? `1px solid ${C.accent}55`
-                : "1px solid transparent",
-            color: (view === it.id || (it.id === "welcome" && view === "generator")) ? C.text : C.muted,
+            background: view === it.id ? "rgba(113,124,119,0.24)" : "transparent",
+            border: view === it.id ? `1px solid ${C.accent}55` : "1px solid transparent",
+            color: view === it.id ? C.text : C.muted,
           }}
         >
           {it.icon}

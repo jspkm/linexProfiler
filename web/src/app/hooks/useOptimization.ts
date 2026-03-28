@@ -140,7 +140,7 @@ export function useOptimization() {
       const res = await fetch(`${CLOUD_FUNCTION_URL}/start_optimize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ catalog_version: selectedCatalogVersion, incentive_set_version: selectedIncentiveSetVersion || undefined }),
+        body: JSON.stringify({ catalog_version: selectedCatalogVersion, incentive_set_version: selectedIncentiveSetVersion || undefined, engine: "monte_carlo" }),
         signal: controller.signal,
       });
       if (!res.ok) {
@@ -162,7 +162,15 @@ export function useOptimization() {
       }
       setOptimizationId(startedOptimizationId);
       setSelectedSavedOptimizationId(startedOptimizationId);
-      setOptimizationPolling(true);
+      // Monte Carlo results arrive synchronously, no polling needed
+      if (data?.engine === "monte_carlo") {
+        updateOptimizationCache(data, true);
+        setOptimizationState(data);
+        setOptimizeInProgress(false);
+        setShowOptimizationProgress(false);
+      } else {
+        setOptimizationPolling(true);
+      }
     } catch (err: unknown) {
       if (!isAbortError(err)) {
         setGenError(err instanceof Error ? err.message : "Failed to start optimization");

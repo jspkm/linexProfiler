@@ -121,9 +121,7 @@ def fs_save_optimization(state) -> str:
 
 
 def fs_load_optimization(optimization_id: str):
-    """Load an OptimizationState by ID. Returns None if not found."""
-    from profile_generator.optimization import OptimizationState
-
+    """Load an optimization by ID. Returns the appropriate model based on engine type."""
     db = _get_db()
     doc = db.collection(OPTIMIZATION_COLLECTION).document(optimization_id).get()
     if not doc.exists:
@@ -131,6 +129,10 @@ def fs_load_optimization(optimization_id: str):
     if not doc.exists:
         return None
     data = _serialize_dates(doc.to_dict())
+    if data.get("engine") == "monte_carlo":
+        from models.monte_carlo import MonteCarloOptimizationResult
+        return MonteCarloOptimizationResult.model_validate(data)
+    from profile_generator.optimization import OptimizationState
     return OptimizationState.model_validate(data)
 
 
@@ -150,16 +152,23 @@ def fs_list_optimizations(catalog_version: str | None = None) -> list[dict]:
         for doc in docs:
             data = _serialize_dates(doc.to_dict())
             optimization_id = data.get("optimization_id") or data.get("experiment_id") or doc.id
-            results_list = data.get("results", [])
-            total_lift = sum(r.get("lift", 0) for r in results_list if isinstance(r, dict))
+            engine = data.get("engine", "legacy")
+            if engine == "monte_carlo":
+                total_lift = data.get("total_lift", 0)
+                result_count = len(data.get("profiles", []))
+            else:
+                results_list = data.get("results", [])
+                total_lift = sum(r.get("lift", 0) for r in results_list if isinstance(r, dict))
+                result_count = len(results_list)
             results_by_optimization_id[optimization_id] = {
                 "optimization_id": optimization_id,
                 "catalog_version": data.get("catalog_version", ""),
                 "incentive_set_version": data.get("incentive_set_version", ""),
                 "status": data.get("status", ""),
+                "engine": engine,
                 "started_at": data.get("started_at", ""),
                 "completed_at": data.get("completed_at", ""),
-                "result_count": len(results_list),
+                "result_count": result_count,
                 "total_lift": round(total_lift),
             }
     results = list(results_by_optimization_id.values())

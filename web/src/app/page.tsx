@@ -12,8 +12,8 @@ import DataroomCanvas from "./components/DataroomCanvas";
 import Dropdown from "./components/Dropdown";
 import AgentChatPanel from "./components/AgentChatPanel";
 import ProfilerView from "./components/ProfilerView";
-import ProfileGeneratorView from "./components/ProfileGeneratorView";
-import { C, CLOUD_FUNCTION_URL, type View, type GeneratorTab } from "./components/theme";
+import SensitivityChart from "./components/SensitivityChart";
+import { C, CLOUD_FUNCTION_URL, type View } from "./components/theme";
 import { useSplitPane } from "./hooks/useSplitPane";
 import { useProfiler } from "./hooks/useProfiler";
 import { useLearnProfiles } from "./hooks/useLearnProfiles";
@@ -23,8 +23,7 @@ import { useWorkflows } from "./hooks/useWorkflows";
 import { useAgentChat } from "./hooks/useAgentChat";
 
 export default function Home() {
-  const [activeView, setActiveView] = useState<View>("welcome");
-  const [generatorTab, setGeneratorTab] = useState<GeneratorTab>("learn");
+  const [activeView, setActiveView] = useState<View>("terminal");
   const [typedWelcomeLine, setTypedWelcomeLine] = useState("");
   const [showRecentCatalogDetail, setShowRecentCatalogDetail] = useState(false);
   const [showRecentIncentiveDetail, setShowRecentIncentiveDetail] = useState(false);
@@ -116,7 +115,7 @@ export default function Home() {
 
   // ── Data bootstrapping effects ──
   useEffect(() => {
-    if (activeView === "generator" || activeView === "welcome") {
+    if (activeView === "terminal") {
       learn.fetchCatalogList();
       learn.fetchUploadedDatasets();
     }
@@ -124,23 +123,20 @@ export default function Home() {
   }, [activeView]);
 
   useEffect(() => {
-    if (activeView === "welcome") {
+    if (activeView === "terminal") {
       learn.loadCatalog(learn.selectedCatalogVersion || undefined);
       optimization.fetchSavedOptimizations(learn.selectedCatalogVersion || undefined);
       incentives.fetchIncentiveSets();
     } else if (activeView === "workflow") {
       wf.fetchWorkflows();
-    } else if (activeView === "generator") {
-      if (generatorTab === "optimize") optimization.fetchSavedOptimizations(learn.selectedCatalogVersion || undefined);
-      incentives.fetchIncentiveSets();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeView, generatorTab]);
+  }, [activeView]);
 
   // Fetch data when a custom workflow is activated
   const prevActiveWorkflowRef = useRef<string | null>(null);
   useEffect(() => {
-    if (wf.activeWorkflow && activeView === "welcome" && wf.activeWorkflow.id !== prevActiveWorkflowRef.current) {
+    if (wf.activeWorkflow && activeView === "terminal" && wf.activeWorkflow.id !== prevActiveWorkflowRef.current) {
       prevActiveWorkflowRef.current = wf.activeWorkflow.id;
       if (incentives.incentiveSets.length === 0) incentives.fetchIncentiveSets();
       if (!incentives.selectedIncentiveSetDetail) incentives.loadIncentiveSetDetail(incentives.selectedIncentiveSetVersion || undefined);
@@ -152,10 +148,10 @@ export default function Home() {
 
   const { loadIncentiveSetDetail, selectedIncentiveSetVersion: selectedISV } = incentives;
   useEffect(() => {
-    if (activeView === "welcome" || (activeView === "generator" && generatorTab === "optimize")) {
+    if (activeView === "terminal") {
       loadIncentiveSetDetail(selectedISV || undefined);
     }
-  }, [activeView, generatorTab, selectedISV, loadIncentiveSetDetail]);
+  }, [activeView, selectedISV, loadIncentiveSetDetail]);
 
   // Clear optimization state when incentive set changes and doesn't match loaded optimization
   useEffect(() => {
@@ -271,27 +267,22 @@ export default function Home() {
   } = optimization;
   const { selectedCatalogVersion } = learn;
   useEffect(() => {
-    if (activeView === "welcome") {
-      if (!selectedCatalogVersion) return;
-    } else if (activeView === "generator") {
-      if (generatorTab !== "optimize" || !selectedCatalogVersion) return;
-    } else { return; }
+    if (activeView !== "terminal" || !selectedCatalogVersion) return;
     if (optimizeInProgress && optimizationId) return;
     const cachedOptimizationId = optimizationLatestByCatalogRef.current[selectedCatalogVersion];
     if (!cachedOptimizationId) return;
     const cachedState = optimizationCacheRef.current[cachedOptimizationId];
     if (!cachedState) return;
     if (optimizationState && optimizationState.catalog_version === selectedCatalogVersion) return;
-    // Don't restore cached optimization if it belongs to a different incentive set
     if (incentives.selectedIncentiveSetVersion && cachedState?.incentive_set_version && cachedState.incentive_set_version !== incentives.selectedIncentiveSetVersion) return;
     setSelectedSavedOptimizationId(cachedOptimizationId);
     setOptimizationState(cachedState);
     setOptimizationId(cachedOptimizationId);
     setOptimizeInProgress(cachedState?.status === "running");
-  }, [activeView, generatorTab, optimizeInProgress, optimizationId, optimizationState, selectedCatalogVersion, optimizationLatestByCatalogRef, optimizationCacheRef, setSelectedSavedOptimizationId, setOptimizationState, setOptimizationId, setOptimizeInProgress]);
+  }, [activeView, optimizeInProgress, optimizationId, optimizationState, selectedCatalogVersion, optimizationLatestByCatalogRef, optimizationCacheRef, setSelectedSavedOptimizationId, setOptimizationState, setOptimizationId, setOptimizeInProgress]);
 
   useEffect(() => {
-    if ((activeView === "generator" || activeView === "welcome") && learn.selectedCatalogVersion) {
+    if (activeView === "terminal" && learn.selectedCatalogVersion) {
       optimization.fetchSavedOptimizations(learn.selectedCatalogVersion);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -302,7 +293,7 @@ export default function Home() {
       <NavRail
         view={activeView}
         setView={(v) => {
-          if (v !== "welcome") wf.setActiveWorkflow(null);
+          if (v !== "terminal") wf.setActiveWorkflow(null);
           setActiveView(v);
         }}
       />
@@ -316,11 +307,11 @@ export default function Home() {
                 workflows={wf.workflows}
                 onTemplate={(t) => {
                   if (t.cat === "User Profiler") { setActiveView("profiler"); profiler.setProfilerTab("test"); }
-                  else if (t.cat === "Profile Generator") { wf.setActiveWorkflow(null); setActiveView("welcome"); setGeneratorTab("optimize"); }
+                  else if (t.cat === "Profile Generator") { wf.setActiveWorkflow(null); setActiveView("terminal"); }
                   else if (t.cat === "Custom") {
                     const w = wf.workflows.find((w) => w.workflow_id === t.id);
                     wf.setActiveWorkflow({ id: t.id, name: t.text, description: t.desc, detail: w?.detail || t.desc || t.text });
-                    setActiveView("welcome");
+                    setActiveView("terminal");
                   }
                 }}
               />
@@ -347,67 +338,11 @@ export default function Home() {
               />
             )}
 
-            {(activeView === "welcome" || activeView === "generator") && (
+            {activeView === "terminal" && (
               <div style={{ padding: "28px 24px 18px" }}>
                 <div className="mx-auto max-w-6xl space-y-6">
-                  {activeView === "generator" && learn.genError && (
-                    <div className="rounded-md bg-red-50 p-4 text-red-700 border border-red-200">{learn.genError}</div>
-                  )}
-
-                  {activeView === "generator" && (
-                    <ProfileGeneratorView
-                      genLoading={learn.genLoading}
-                      genError={learn.genError}
-                      learnStatus={learn.learnStatus}
-                      learnInProgress={learn.learnInProgress}
-                      generatorTab={generatorTab}
-                      setGeneratorTab={setGeneratorTab}
-                      learnSource={learn.learnSource}
-                      setLearnSource={learn.setLearnSource}
-                      learnUploadName={learn.learnUploadName}
-                      setLearnUploadName={learn.setLearnUploadName}
-                      learnUploadFile={learn.learnUploadFile}
-                      setLearnUploadFile={learn.setLearnUploadFile}
-                      learnUploadSubmitted={learn.learnUploadSubmitted}
-                      setLearnUploadSubmitted={learn.setLearnUploadSubmitted}
-                      pendingUploadedPortfolioName={learn.pendingUploadedPortfolioName}
-                      setPendingUploadedPortfolioName={learn.setPendingUploadedPortfolioName}
-                      uploadedDatasets={learn.uploadedDatasets}
-                      deleteSelectedPortfolio={() => learn.deleteSelectedPortfolio(optimization.optimizeInProgress)}
-                      learnK={learn.learnK}
-                      setLearnK={learn.setLearnK}
-                      learnProfiles={learn.learnProfiles}
-                      stopLearnProcess={learn.stopLearnProcess}
-                      catalog={learn.catalog}
-                      catalogList={learn.catalogList}
-                      selectedCatalogVersion={learn.selectedCatalogVersion}
-                      setSelectedCatalogVersion={learn.setSelectedCatalogVersion}
-                      loadCatalog={learn.loadCatalog}
-                      startOptimization={() => optimization.startOptimization(learn.selectedCatalogVersion, incentives.selectedIncentiveSetVersion, learn.setGenLoading, learn.setGenError)}
-                      stopOptimization={() => optimization.stopOptimization(learn.selectedCatalogVersion)}
-                      deleteOptimization={() => optimization.deleteOptimization(learn.learnInProgress, learn.selectedCatalogVersion)}
-                      deleteCatalog={(v: string) => learn.deleteCatalog(v, optimization.optimizeInProgress)}
-                      optimizationState={optimization.optimizationState}
-                      optimizationStarting={optimization.optimizationStarting}
-                      optimizeInProgress={optimization.optimizeInProgress}
-                      optimizationStopPhase={optimization.optimizationStopPhase}
-                      showOptimizationProgress={optimization.showOptimizationProgress}
-                      savedOptimizations={optimization.savedOptimizations}
-                      selectedSavedOptimizationId={optimization.selectedSavedOptimizationId}
-                      loadSavedOptimization={optimization.loadSavedOptimization}
-                      fetchSavedOptimizations={optimization.fetchSavedOptimizations}
-                      incentiveSets={incentives.incentiveSets}
-                      selectedIncentiveSetVersion={incentives.selectedIncentiveSetVersion}
-                      setSelectedIncentiveSetVersion={incentives.setSelectedIncentiveSetVersion}
-                      selectedIncentiveSetDetail={incentives.selectedIncentiveSetDetail}
-                      incentiveSetDetailLoading={incentives.incentiveSetDetailLoading}
-                      gridCustomColumns={agentChat.gridCustomColumns}
-                      formatCustomColValue={formatCustomColValue}
-                    />
-                  )}
-
                   {/* Custom Workflow Screen */}
-                  {activeView === "welcome" && wf.activeWorkflow && (
+                  {activeView === "terminal" && wf.activeWorkflow && (
                     <div className="space-y-4">
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                         <div>
@@ -456,7 +391,7 @@ export default function Home() {
                   )}
 
                   {/* Optimize Portfolio — Home or Generator */}
-                  {(activeView === "generator" || !wf.activeWorkflow) && (
+                  {!wf.activeWorkflow && (
                     <div className="space-y-4">
                       <h3 className="text-xs font-bold tracking-wider" style={{ color: "#00aaff" }}>Optimize Portfolio</h3>
                       <div className="flex flex-col gap-4 max-w-[66%]">
@@ -597,7 +532,34 @@ export default function Home() {
                       {/* Results table */}
                       {optimization.optimizationState?.results && optimization.optimizationState.results.length > 0 && (
                         <div className="rounded-xl border px-6 pb-6 pt-3 space-y-4" style={{ borderColor: C.border, background: C.surface }}>
-                          <h4 className="text-xs font-bold tracking-wider sticky top-0 z-10 pb-2" style={{ color: "#00aaff", background: C.surface }}>Optimal Incentive Program</h4>
+                          <div className="flex items-center justify-between sticky top-0 z-10 pb-2" style={{ background: C.surface }}>
+                            <h4 className="text-xs font-bold tracking-wider" style={{ color: "#00aaff" }}>Optimal Incentive Program</h4>
+                            {optimization.optimizationState?.engine === "monte_carlo" && optimization.optimizationState?.optimization_id && (
+                              <button
+                                className="px-3 py-1 text-[10px] font-medium rounded border hover:opacity-80 transition-opacity"
+                                style={{ borderColor: C.border, color: C.accentDim }}
+                                onClick={async () => {
+                                  try {
+                                    const res = await fetch(`${CLOUD_FUNCTION_URL}/export_deal_memo/${optimization.optimizationState!.optimization_id}`, { method: "POST" });
+                                    if (!res.ok) throw new Error("Export failed");
+                                    const data = await res.json();
+                                    const byteChars = atob(data.pdf_base64);
+                                    const byteArray = new Uint8Array(byteChars.length);
+                                    for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i);
+                                    const blob = new Blob([byteArray], { type: "application/pdf" });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement("a");
+                                    a.href = url;
+                                    a.download = data.filename || "deal_memo.pdf";
+                                    a.click();
+                                    URL.revokeObjectURL(url);
+                                  } catch (e) { console.error("Deal memo export failed:", e); }
+                                }}
+                              >
+                                Export Deal Memo
+                              </button>
+                            )}
+                          </div>
                           <div className="overflow-x-clip">
                             <table className="w-full text-sm">
                               <thead className="sticky top-6 z-10" style={{ background: C.surface }}>
@@ -609,6 +571,12 @@ export default function Home() {
                                   <th className="py-2 pr-4 font-medium text-right">Cost</th>
                                   <th className="py-2 pr-4 font-medium text-right">Lift</th>
                                   <th className="py-2 pr-4 font-bold text-right">Final LTV</th>
+                                  {optimization.optimizationState?.engine === "monte_carlo" && (
+                                    <>
+                                      <th className="py-2 pr-4 font-medium text-right">90% CI</th>
+                                      <th className="py-2 pr-4 font-medium text-right">P(Lift&gt;0)</th>
+                                    </>
+                                  )}
                                   {agentChat.gridCustomColumns.map((col) => (
                                     <th key={col.id} className="py-2 pr-4 font-medium text-right" style={{ color: "#00aaff" }}>{col.label}</th>
                                   ))}
@@ -629,6 +597,18 @@ export default function Home() {
                                     <td className="py-3 pr-4 text-right font-mono" style={{ color: C.textSec }}>{`${r.portfolio_cost > 0 ? '-' : ''}$${Math.round(Math.abs(r.portfolio_cost)).toLocaleString('en-US')}`}</td>
                                     <td className="py-3 pr-4 text-right font-mono" style={{ color: C.textSec }}>{`+$${Math.round(r.lift).toLocaleString('en-US')}`}</td>
                                     <td className="py-3 pr-4 text-right font-mono font-bold" style={{ color: C.text }}>{`$${Math.round(r.new_net_portfolio_ltv).toLocaleString('en-US')}`}</td>
+                                    {optimization.optimizationState?.engine === "monte_carlo" && (
+                                      <>
+                                        <td className="py-3 pr-4 text-right font-mono text-xs" style={{ color: C.muted }}>
+                                          {r.confidence_interval_90
+                                            ? `$${Math.round(r.confidence_interval_90[0]).toLocaleString('en-US')} – $${Math.round(r.confidence_interval_90[1]).toLocaleString('en-US')}`
+                                            : "—"}
+                                        </td>
+                                        <td className="py-3 pr-4 text-right font-mono" style={{ color: C.textSec }}>
+                                          {r.probability_positive_lift != null ? `${(r.probability_positive_lift * 100).toFixed(0)}%` : "—"}
+                                        </td>
+                                      </>
+                                    )}
                                     {agentChat.gridCustomColumns.map((col) => (
                                       <td key={col.id} className="py-3 pr-4 text-right font-mono" style={{ color: "#00aaff" }}>{formatCustomColValue(col.expr(r), col.format)}</td>
                                     ))}
@@ -641,6 +621,12 @@ export default function Home() {
                                   <td className="py-4 pr-4 text-right font-mono" style={{ color: C.textSec, borderTop: `1px solid ${C.border}` }}>{`-$${Math.round(optimization.optimizationState.results.reduce((s: number, r: ApiRecord) => s + (r.portfolio_cost || 0), 0)).toLocaleString('en-US')}`}</td>
                                   <td className="py-4 pr-4 text-right font-mono font-bold" style={{ color: C.textSec, borderTop: `1px solid ${C.border}` }}>{`+$${Math.round(optimization.optimizationState.results.reduce((s: number, r: ApiRecord) => s + (r.lift || 0), 0)).toLocaleString('en-US')}`}</td>
                                   <td className="py-4 pr-4 text-right font-mono font-bold" style={{ color: C.text, borderTop: `1px solid ${C.border}` }}>{`$${Math.round(optimization.optimizationState.results.reduce((s: number, r: ApiRecord) => s + (r.new_net_portfolio_ltv || 0), 0)).toLocaleString('en-US')}`}</td>
+                                  {optimization.optimizationState?.engine === "monte_carlo" && (
+                                    <>
+                                      <td className="py-4 pr-4" style={{ borderTop: `1px solid ${C.border}` }} />
+                                      <td className="py-4 pr-4" style={{ borderTop: `1px solid ${C.border}` }} />
+                                    </>
+                                  )}
                                   {agentChat.gridCustomColumns.map((col) => {
                                     const results = optimization.optimizationState!.results as ApiRecord[];
                                     const vals = results.map((r: ApiRecord) => col.expr(r));
@@ -651,8 +637,14 @@ export default function Home() {
                               </tbody>
                             </table>
                           </div>
+                          {optimization.optimizationState?.engine === "monte_carlo" && optimization.optimizationState?.sensitivity_analysis && (
+                            <SensitivityChart data={optimization.optimizationState.sensitivity_analysis} />
+                          )}
                           <div className="text-xs px-1" style={{ color: C.muted }}>
-                            Convergence-based optimization: each profile iterates until rolling outcomes statistically stabilize (low variance + near-zero trend), with max-iteration and patience guards. Only net-positive incentives retained (marginal LTV &gt; effective cost).
+                            {optimization.optimizationState?.engine === "monte_carlo"
+                              ? `Monte Carlo simulation (${(optimization.optimizationState?.n_simulations || 5000).toLocaleString()} draws per bundle). Uptake rates sampled from Beta-Binomial priors. Only net-positive bundles retained (p5 ≥ 95% of baseline). 90% CI = 5th–95th percentile range.`
+                              : "Convergence-based optimization: each profile iterates until rolling outcomes statistically stabilize (low variance + near-zero trend), with max-iteration and patience guards. Only net-positive incentives retained (marginal LTV > effective cost)."
+                            }
                           </div>
                         </div>
                       )}
