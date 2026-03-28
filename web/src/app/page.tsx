@@ -342,7 +342,15 @@ export default function Home() {
               <div style={{ padding: "28px 24px 18px" }}>
                 <div className="mx-auto max-w-6xl space-y-6">
                   {/* Custom Workflow Screen */}
-                  {activeView === "terminal" && wf.activeWorkflow && (
+                  {activeView === "terminal" && wf.activeWorkflow && (() => {
+                    const detail = (wf.activeWorkflow.detail || wf.activeWorkflow.description || "").toLowerCase();
+                    const showPortfolio = /portfolio|dataset|csv|upload|data/.test(detail);
+                    const showProfile = /profile|segment|cluster|k-means/.test(detail);
+                    const showIncentive = /incentive|reward|program|bundle/.test(detail);
+                    const showOptimization = /optimi|result|ltv|lift|performance/.test(detail);
+                    // Default: show portfolio if nothing matched
+                    const showDefault = !showPortfolio && !showProfile && !showIncentive && !showOptimization;
+                    return (
                     <div className="space-y-4">
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                         <div>
@@ -352,43 +360,138 @@ export default function Home() {
                         <button type="button" onClick={() => wf.setActiveWorkflow(null)} className="text-[10px] tracking-wider hover:underline underline-offset-2" style={{ color: C.accentDim }}>Back</button>
                       </div>
                       <div className="flex flex-col gap-4 max-w-[66%]">
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] tracking-wider font-semibold" style={{ color: C.muted }}>Incentive Set</label>
-                          <Dropdown
-                            value={incentives.selectedIncentiveSetVersion || ""}
-                            options={incentives.incentiveSets.map((s: ApiRecord) => ({ value: s.version, label: `${s.name || s.version} (${s.incentive_count} incentives)${s.is_default ? " *" : ""}` }))}
-                            onChange={(val) => { incentives.setSelectedIncentiveSetVersion(val); incentives.loadIncentiveSetDetail(val); }}
-                            className="w-full"
-                          />
-                        </div>
+
+                        {/* Portfolio dropdown */}
+                        {(showPortfolio || showDefault) && (
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] tracking-wider font-semibold" style={{ color: C.muted }}>Portfolio</label>
+                            <Dropdown
+                              value={learn.learnSource}
+                              options={learn.uploadedDatasets.map((d: ApiRecord) => ({ value: `uploaded-dataset:${d.dataset_id}`, label: `${d.upload_name || d.dataset_id} (${d.row_count || 0} rows)` }))}
+                              onChange={(val) => learn.setLearnSource(val)}
+                              className="w-full"
+                            />
+                          </div>
+                        )}
+
+                        {/* Profile dropdown */}
+                        {showProfile && (
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] tracking-wider font-semibold" style={{ color: C.muted }}>Profile</label>
+                            <Dropdown
+                              value={learn.selectedCatalogVersion}
+                              options={learn.catalogList.map((c: ApiRecord) => ({ value: c.version, label: `${c.version} (${c.profile_count} profiles)` }))}
+                              onChange={(val) => { learn.setSelectedCatalogVersion(val); learn.loadCatalog(val); }}
+                              mono
+                              className="w-full"
+                            />
+                          </div>
+                        )}
+
+                        {/* Incentive Set dropdown */}
+                        {showIncentive && (
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] tracking-wider font-semibold" style={{ color: C.muted }}>Incentive Set</label>
+                            <Dropdown
+                              value={incentives.selectedIncentiveSetVersion || ""}
+                              options={incentives.incentiveSets.map((s: ApiRecord) => ({ value: s.version, label: `${s.name || s.version} (${s.incentive_count} incentives)${s.is_default ? " *" : ""}` }))}
+                              onChange={(val) => { incentives.setSelectedIncentiveSetVersion(val); incentives.loadIncentiveSetDetail(val); }}
+                              className="w-full"
+                            />
+                          </div>
+                        )}
                       </div>
-                      {incentives.incentiveSetDetailLoading && (
-                        <div className="flex items-center gap-2 py-4">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: C.muted }} />
-                          <span className="text-xs" style={{ color: C.muted }}>Loading incentives…</span>
+
+                      {/* Portfolio detail */}
+                      {(showPortfolio || showDefault) && learn.learnSource && (() => {
+                        const dsId = learn.learnSource.startsWith("uploaded-dataset:") ? learn.learnSource.replace("uploaded-dataset:", "") : "";
+                        const ds = learn.uploadedDatasets.find((d: ApiRecord) => d.dataset_id === dsId);
+                        if (!ds) return null;
+                        return (
+                          <div className="rounded-xl border overflow-hidden" style={{ borderColor: C.border, background: C.surface }}>
+                            <div className="px-4 py-2.5 border-b text-[10px] tracking-wider font-semibold" style={{ borderColor: C.border, color: C.muted }}>
+                              {ds.upload_name || ds.dataset_id}
+                            </div>
+                            <div className="px-4 py-3 grid grid-cols-3 gap-4 text-xs">
+                              <div><span style={{ color: C.muted }}>Rows:</span> <span className="font-mono" style={{ color: C.text }}>{(ds.row_count || 0).toLocaleString()}</span></div>
+                              <div><span style={{ color: C.muted }}>Users:</span> <span className="font-mono" style={{ color: C.text }}>{(ds.parsed_user_count || 0).toLocaleString()}</span></div>
+                              <div><span style={{ color: C.muted }}>Uploaded:</span> <span className="font-mono" style={{ color: C.text }}>{ds.created_at ? new Date(ds.created_at).toLocaleDateString() : "—"}</span></div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Profile detail */}
+                      {showProfile && learn.catalog && (
+                        <div className="rounded-xl border overflow-hidden" style={{ borderColor: C.border, background: C.surface }}>
+                          <div className="px-4 py-2.5 border-b text-[10px] tracking-wider font-semibold" style={{ borderColor: C.border, color: C.muted }}>
+                            {learn.catalog.version} · K={learn.catalog.k} · {learn.catalog.total_learning_population?.toLocaleString()} users
+                          </div>
+                          <table className="w-full text-xs">
+                            <thead><tr style={{ borderBottom: `1px solid ${C.border}`, color: C.muted }}>
+                              <th className="py-2 px-4 text-left font-medium">Profile</th>
+                              <th className="py-2 pr-4 text-left font-medium">Description</th>
+                              <th className="py-2 pr-4 text-right font-medium">LTV</th>
+                              <th className="py-2 pr-4 text-right font-medium">Population</th>
+                            </tr></thead>
+                            <tbody>
+                              {(learn.catalog.profiles || []).map((p: ApiRecord) => (
+                                <tr key={p.profile_id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                                  <td className="py-2 px-4 font-semibold">{p.profile_id}</td>
+                                  <td className="py-2 pr-4" style={{ color: C.textSec }}>{p.description}</td>
+                                  <td className="py-2 pr-4 text-right font-mono" style={{ color: C.textSec }}>${Math.round(p.portfolio_ltv || 0).toLocaleString()}</td>
+                                  <td className="py-2 pr-4 text-right font-mono" style={{ color: C.muted }}>{(p.population_count || 0).toLocaleString()} ({((p.population_share || 0) * 100).toFixed(1)}%)</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
                       )}
-                      {!incentives.incentiveSetDetailLoading && incentives.selectedIncentiveSetDetail && (
+
+                      {/* Incentive Set detail */}
+                      {showIncentive && !incentives.incentiveSetDetailLoading && incentives.selectedIncentiveSetDetail && (
                         <div className="rounded-xl border overflow-hidden" style={{ borderColor: C.border, background: C.surface }}>
                           <div className="px-4 py-2.5 border-b text-[10px] tracking-wider font-semibold" style={{ borderColor: C.border, color: C.muted }}>
                             {incentives.selectedIncentiveSetDetail.name || incentives.selectedIncentiveSetDetail.version} — {(incentives.selectedIncentiveSetDetail.incentives || []).length} incentives
                           </div>
-                          {(incentives.selectedIncentiveSetDetail.incentives || []).length === 0 ? (
-                            <p className="text-xs px-4 py-3" style={{ color: C.muted }}>No incentives in this set.</p>
-                          ) : (
-                            <div className="px-4 py-3 flex flex-wrap gap-1.5">
-                              {(incentives.selectedIncentiveSetDetail.incentives || []).map((inc: ApiRecord, idx: number) => (
-                                <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border" style={{ borderColor: C.border, background: "white", color: "black" }}>
-                                  {inc.name}
-                                  <span style={{ color: C.muted }}>${Math.round((inc.estimated_annual_cost_per_user || 0) * (inc.redemption_rate || 1))}</span>
-                                </span>
+                          <div className="px-4 py-3 flex flex-wrap gap-1.5">
+                            {(incentives.selectedIncentiveSetDetail.incentives || []).map((inc: ApiRecord, idx: number) => (
+                              <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border" style={{ borderColor: C.border, background: "white", color: "black" }}>
+                                {inc.name}
+                                <span style={{ color: C.muted }}>${Math.round((inc.estimated_annual_cost_per_user || 0) * (inc.redemption_rate || 1))}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Optimization results */}
+                      {showOptimization && optimization.optimizationState?.results && optimization.optimizationState.results.length > 0 && (
+                        <div className="rounded-xl border px-6 pb-6 pt-3 space-y-4" style={{ borderColor: C.border, background: C.surface }}>
+                          <h4 className="text-xs font-bold tracking-wider" style={{ color: "#00aaff" }}>Optimization Results</h4>
+                          <table className="w-full text-xs">
+                            <thead><tr style={{ borderBottom: `1px solid ${C.border}`, color: C.muted }}>
+                              <th className="py-2 pr-4 text-left font-medium">Profile</th>
+                              <th className="py-2 pr-4 text-right font-medium">Orig LTV</th>
+                              <th className="py-2 pr-4 text-right font-medium">Lift</th>
+                              <th className="py-2 pr-4 text-right font-medium">Final LTV</th>
+                            </tr></thead>
+                            <tbody>
+                              {(optimization.optimizationState.results as ApiRecord[]).map((r: ApiRecord, idx: number) => (
+                                <tr key={`${r.profile_id}-${idx}`} style={{ borderBottom: `1px solid ${C.border}` }}>
+                                  <td className="py-2 pr-4 font-semibold">{r.profile_id}</td>
+                                  <td className="py-2 pr-4 text-right font-mono" style={{ color: C.muted }}>${Math.round(r.original_portfolio_ltv || 0).toLocaleString()}</td>
+                                  <td className="py-2 pr-4 text-right font-mono" style={{ color: C.textSec }}>+${Math.round(r.lift || 0).toLocaleString()}</td>
+                                  <td className="py-2 pr-4 text-right font-mono font-bold">${Math.round(r.new_net_portfolio_ltv || 0).toLocaleString()}</td>
+                                </tr>
                               ))}
-                            </div>
-                          )}
+                            </tbody>
+                          </table>
                         </div>
                       )}
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Optimize Portfolio — Home or Generator */}
                   {!wf.activeWorkflow && (
