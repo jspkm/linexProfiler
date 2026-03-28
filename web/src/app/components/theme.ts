@@ -29,9 +29,8 @@ export const BEHAVIORAL_AXES: { axis: string; label: string; features: string[] 
 
 export const PRIMARY_FEATURES = new Set(BEHAVIORAL_AXES.map(a => a.features[0]));
 
-export type View = "welcome" | "profiler" | "generator" | "workflow" | "dataroom";
+export type View = "terminal" | "profiler" | "workflow" | "dataroom";
 export type ProfilerTab = "test" | "upload";
-export type GeneratorTab = "learn" | "optimize";
 
 export const DEFAULT_LOCAL_API_BASE_URL = "http://127.0.0.1:5050/linexone-dev/us-central1";
 export const CLOUD_FUNCTION_URL = (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE_URL?.trim())

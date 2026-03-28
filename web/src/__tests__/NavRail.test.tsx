@@ -4,7 +4,7 @@ import NavRail from "@/app/components/NavRail";
 
 describe("NavRail", () => {
   it("renders all navigation items", () => {
-    const { container } = render(<NavRail view="welcome" setView={() => {}} />);
+    const { container } = render(<NavRail view="terminal" setView={() => {}} />);
     expect(container.textContent).toContain("⌂");
     expect(container.textContent).toContain("◇");
     expect(container.textContent).toContain("📁");
@@ -12,7 +12,7 @@ describe("NavRail", () => {
 
   it("calls setView when a nav item is clicked", () => {
     const setView = vi.fn();
-    const { container } = render(<NavRail view="welcome" setView={setView} />);
+    const { container } = render(<NavRail view="terminal" setView={setView} />);
     const navItems = container.querySelectorAll<HTMLDivElement>("[style*='cursor: pointer']");
     // Click the workflow (◇) item — second nav item
     const workflowItem = Array.from(navItems).find((el) => el.textContent?.includes("◇"));
@@ -21,7 +21,7 @@ describe("NavRail", () => {
   });
 
   it("shows hover label on mouse enter", () => {
-    const { container } = render(<NavRail view="welcome" setView={() => {}} />);
+    const { container } = render(<NavRail view="terminal" setView={() => {}} />);
     const navItems = container.querySelectorAll<HTMLDivElement>("[style*='cursor: pointer']");
     const workflowItem = Array.from(navItems).find((el) => el.textContent?.includes("◇"));
     fireEvent.mouseEnter(workflowItem!);
@@ -29,7 +29,7 @@ describe("NavRail", () => {
   });
 
   it("renders the logo", () => {
-    const { container } = render(<NavRail view="welcome" setView={() => {}} />);
+    const { container } = render(<NavRail view="terminal" setView={() => {}} />);
     const imgs = container.querySelectorAll("img[alt='LX']");
     expect(imgs.length).toBeGreaterThan(0);
   });
