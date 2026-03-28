@@ -38,13 +38,13 @@ TEST_USERS_DIR = DATA_DIR / "test-users"
 CARDS_PATH = PROJECT_ROOT / "cards" / "cards.json"
 
 # Firebase
-FIREBASE_CREDENTIALS_PATH = os.environ.get("FIREBASE_CREDENTIALS_PATH", "linexonewhitelabeler-firebase-adminsdk-fbsvc-3b7f1d399f.json")
+FIREBASE_CREDENTIALS_PATH = os.environ.get("LINEX_CREDENTIALS_PATH", "linexonewhitelabeler-firebase-adminsdk-fbsvc-3b7f1d399f.json")
 FIREBASE_PROJECT_ID = os.environ.get(
-    "GCLOUD_PROJECT",
+    "LINEX_GCLOUD_PROJECT",
     PRODUCTION_FIREBASE_PROJECT_ID if APP_ENV == "production" else DEVELOPMENT_FIREBASE_PROJECT_ID,
 )
 FIREBASE_STORAGE_BUCKET = os.environ.get(
-    "FIREBASE_STORAGE_BUCKET",
+    "LINEX_STORAGE_BUCKET",
     PRODUCTION_STORAGE_BUCKET if APP_ENV == "production" else DEVELOPMENT_STORAGE_BUCKET,
 )
 
@@ -59,7 +59,7 @@ def writes_allowed() -> bool:
 def write_block_reason() -> str:
     return (
         f"Write blocked: LINEX_ENV={APP_ENV!r} is configured against production Firebase "
-        f"project {PRODUCTION_FIREBASE_PROJECT_ID!r}. Point GCLOUD_PROJECT at "
+        f"project {PRODUCTION_FIREBASE_PROJECT_ID!r}. Point LINEX_GCLOUD_PROJECT at "
         f"{DEVELOPMENT_FIREBASE_PROJECT_ID!r} for development."
     )
 
