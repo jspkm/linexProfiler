@@ -123,6 +123,10 @@
                 "function": "delete_optimize_fn"
             },
             {
+                "source": "/api/export_deal_memo/**",
+                "function": "export_deal_memo"
+            },
+            {
                 "source": "/api/list_incentive_sets",
                 "function": "list_incentive_sets"
             },
