@@ -160,14 +160,16 @@ class DealMemoPDF(FPDF):
             return
         def map_x(val):
             return x + (val - p5) / (p95 - p5) * width
-        # Track
+        # Track (full width background)
         self.set_fill_color(*BG_ALT)
         self.rect(x, y, width, 3, "F")
-        # Range fill
+        # Range fill (p5 to p95 only)
+        range_x = map_x(p5)
+        range_w = map_x(p95) - range_x
         self.set_fill_color(*GREEN_LIGHT)
-        self.rect(x, y, width, 3, "F")
-        self.set_fill_color(*GREEN)
+        self.rect(range_x, y, max(1, range_w), 3, "F")
         # Median tick
+        self.set_fill_color(*GREEN)
         mx = map_x(p50)
         self.rect(mx - 0.3, y - 0.3, 0.6, 3.6, "F")
 
@@ -422,7 +424,6 @@ def generate_deal_memo(
 
         # Tornado chart
         sens = result.sensitivity_analysis
-        max_range = max((abs(s.high_delta - s.low_delta) for s in sens), default=1) or 1
         max_abs = max((max(abs(s.low_delta), abs(s.high_delta)) for s in sens), default=1) or 1
         center_x = pdf.l_margin + 50 + 45  # center of tornado
         bar_half_w = 45  # max half-width of bar
