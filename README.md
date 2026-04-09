@@ -16,7 +16,9 @@ linex-terminal/
 │   │   ├── feature_transform.py   Feature normalization/scaling
 │   │   ├── firestore_client.py    Firestore persistence layer
 │   │   ├── incentive_manager.py   Incentive set CRUD
-│   │   ├── optimization.py        Incentive program optimization engine
+│   │   ├── monte_carlo.py         Monte Carlo optimization engine (Beta-Binomial)
+│   │   ├── deal_memo.py           Deal Memo PDF export (Geist fonts, inline charts)
+│   │   ├── optimization.py        Legacy optimization engine (Gemini-based)
 │   │   ├── trainer.py             K-means clustering trainer
 │   │   └── versioning.py          Catalog version management
 │   ├── prompts/            LLM system prompts
@@ -47,8 +49,9 @@ linex-terminal/
 ## Key Features
 
 - **Profile Learning** — K-means clustering on behavioral axes (recency, frequency, spend, refund) to learn customer profiles from transaction data
-- **Incentive Optimization** — Simulation engine to derive optimal incentive programs per profile with convergence detection
-- **Agent Chat** — Conversational interface with structured actions for workflow management, CRUD operations, and grid column customization
+- **Incentive Optimization** — Monte Carlo simulation engine with Beta-Binomial priors to derive optimal incentive bundles per profile with confidence intervals and sensitivity analysis
+- **Agent Chat** — Conversational quant analyst with programmatic fallbacks for budget, target LTV, and what-if queries; structured actions for workflow management and CRUD
+- **Deal Memo Export** — PDF report with LTV waterfall, lift charts, CI visualization, tornado sensitivity analysis, and methodology notes
 - **Workflow Management** — Create, edit, delete custom workflows; built-in "Optimize portfolio" template
 - **Dataroom** — Upload and manage portfolio datasets (CSV/XLSX)
 - **Incentive Sets** — CRUD with cascade delete, default set management, and usage checking

@@ -1,7 +1,7 @@
 """Tests for Deal Memo PDF generation."""
 
 from datetime import datetime, timezone
-from profile_generator.deal_memo import generate_deal_memo, _ascii_safe
+from profile_generator.deal_memo import generate_deal_memo
 from models.monte_carlo import (
     MonteCarloOptimizationResult,
     MonteCarloProfileResult,
@@ -59,19 +59,6 @@ def _make_test_data():
         incentives=[Incentive(name="2% cash back", estimated_annual_cost_per_user=50, redemption_rate=0.3)],
     )
     return mc_result, catalog, inc_set
-
-
-class TestAsciiSafe:
-    def test_ascii_passthrough(self):
-        assert _ascii_safe("hello world") == "hello world"
-
-    def test_em_dash_replaced(self):
-        result = _ascii_safe("test \u2014 value")
-        assert "\u2014" not in result
-
-    def test_unicode_replaced(self):
-        result = _ascii_safe("caf\u00e9")
-        assert all(ord(c) < 128 for c in result)
 
 
 class TestGenerateDealMemo:

@@ -562,7 +562,7 @@ export default function Home() {
                                   </button>
                                 </div>
                                 {showRecentCatalogDetail && learn.catalog && (
-                                  <div className="mt-2 rounded-lg border overflow-x-clip" style={{ borderColor: C.border, background: C.surface }}>
+                                  <div className="mt-2 rounded-lg border overflow-x-auto" style={{ borderColor: C.border, background: C.surface }}>
                                     <div className="px-3 py-2 border-b text-[10px] tracking-wider font-semibold sticky top-0 z-10" style={{ borderColor: C.border, color: C.muted, background: C.surface }}>
                                       Version: <span className="font-mono">{learn.catalog.version}</span> · Source: {learn.catalog.source} · K={learn.catalog.k}
                                       {learn.catalog.total_learning_population > 0 && ` · ${learn.catalog.total_learning_population.toLocaleString()} users`}
@@ -680,7 +680,7 @@ export default function Home() {
                               </button>
                             )}
                           </div>
-                          <div className="overflow-x-clip">
+                          <div className="overflow-x-auto">
                             <table className="w-full text-sm">
                               <thead className="sticky top-6 z-10" style={{ background: C.surface }}>
                                 <tr style={{ borderBottom: `1px solid ${C.border}`, color: C.muted }}>

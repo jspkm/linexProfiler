@@ -221,8 +221,8 @@ def run_monte_carlo_optimization(
         unconstrained_cost = sum(c.best_bundle.expected_cost for c in profile_comparisons)
         if unconstrained_cost > budget:
             warnings.append(
-                f"Unconstrained cost (${unconstrained_cost:,.0f}) exceeds budget (${budget:,.0f}). "
-                "Selecting highest-ROI bundles that fit within budget."
+                f"Budget constraint active: optimal bundles would cost ${unconstrained_cost:,.0f} unconstrained. "
+                f"Selecting highest-ROI bundles within ${budget:,.0f} budget."
             )
             # Collect all viable bundles (best + alternatives) per profile, ranked by ROI
             candidates: list[tuple[float, int, MonteCarloProfileResult]] = []

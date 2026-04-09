@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.2.0] - 2026-04-08
+
+### Changed
+- Redesigned Deal Memo PDF with Geist/GeistMono fonts, replacing Helvetica. New content-dense layout with metrics grid, LTV waterfall chart, per-profile lift bars with confidence interval visualization, tornado sensitivity chart, and alternating row shading.
+- Removed ASCII-safe text encoding (Geist supports full Unicode natively).
+- Budget constraint warning now reads more clearly: shows unconstrained cost and budget in one sentence.
+
+### Fixed
+- Frontend tables (catalog detail, optimization results) now scroll horizontally instead of clipping content.
+
 ## [0.1.1.0] - 2026-03-30
 
 ### Added
